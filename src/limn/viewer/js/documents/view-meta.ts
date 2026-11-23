@@ -6,7 +6,7 @@ import { translateTemplate, translate } from '../platform/i18n.ts';
 import { $ } from '../platform/dom.ts';
 import { tableEntry } from '../platform/tables.ts';
 import { LOCAL_LOGIN, ROLE, SYNC_STATE } from '../app/rules-tables.ts';
-import { isAgent, who, isHuman } from '../app/state-people.ts';
+import { isAgent, who, isHuman, isOwner } from '../app/state-people.ts';
 import { avatar } from '../app/view-people.ts';
 import { isMarkdownDoc, isTextDoc, isViewer, setStatusSync } from './state.ts';
 import { markdownSurface } from './state-seams.ts';
@@ -114,6 +114,7 @@ function drawMeta() {
     translate(isMarkdownDoc() ? (isTextDoc() ? '텍스트 문서' : 'Markdown 문서') : 'PDF 쪽'),
   );
   document.body.classList.toggle('role-viewer', isViewer());
+  document.body.classList.toggle('role-owner', isOwner());
   $('#m-download').disabled = !meta.pages_build || isMarkdownDoc(); // no build on screen, no PDF to save
   // A Markdown document has no PDF: its file is the tab's source, 'Markdown' its form, and no build time (nor its ' ·
   // ').

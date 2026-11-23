@@ -10,7 +10,7 @@ from pathlib import Path
 from limn.collaboration.application import PeopleView
 from limn.pins.application import PinReadView
 from limn.pins.model import parse_pin
-from limn.security import people
+from limn.security import people_store as people
 
 
 class PeopleViewTests(unittest.TestCase):
@@ -35,6 +35,7 @@ class PeopleViewTests(unittest.TestCase):
                 warning=lambda: people.UnreadableWarning(),
                 participants=lambda refresh: pin_view.actors(refresh=refresh),
                 roles=lambda: {},
+                managed=lambda: "not-managed",
                 clock=lambda: 0.0,
             )
 

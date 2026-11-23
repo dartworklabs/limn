@@ -40,8 +40,22 @@ from typing import Any, Generic, Literal, NamedTuple, TypeAlias, TypeGuard, Type
 from urllib.parse import urlparse
 
 from limn.security.guidance import UNAUTHENTICATED, loopback_refused_text
-from limn.security.people import PeopleUnreadable
-from limn.security.values import CONFIRM_BY_HUMAN, LOCAL_LOGIN, AuthorityScope as AuthorityScope
+from limn.security.people_store import PeopleUnreadable
+from limn.security.values import (
+    AGENT_LOGIN_PREFIX as AGENT_LOGIN_PREFIX,
+    CONFIRM_BY_HUMAN,
+    DEFAULT_ROLE as DEFAULT_ROLE,
+    LOCAL_LOGIN,
+    LOGIN_MAX as LOGIN_MAX,
+    NAME_MAX as NAME_MAX,
+    ROLES as ROLES,
+    AuthorityScope as AuthorityScope,
+    ManagedAccess,
+    Role as Role,
+    is_role as is_role,
+    role_value as role_value,
+    valid_login as valid_login,
+)
 from limn.web.errors import HTTPError
 
 Json: TypeAlias = dict[str, Any]
@@ -50,24 +64,18 @@ HostEntry: TypeAlias = tuple[str, int | None]  # one --public-host: (lowercase n
 T = TypeVar("T")
 
 LOCAL_ACTOR = {"login": LOCAL_LOGIN, "name": "로컬/에이전트"}
-AGENT_LOGIN_PREFIX = "agent:"  # API-token principals are {"login": "agent:<token name>", "name": "<token name>"}
 
 # The security values are closed types: a comparison with a value outside them is a type error (basedpyright's
 # reportUnnecessaryComparison and reportUnnecessaryContains flag a non-overlapping ==, != or in). Text from outside -
 # people.json, the command line - becomes one of them only through is_role / is_auth_provider (role_value,
 # access_options, member_add); the tuples are the runtime side of the same sets.
 AuthProvider: TypeAlias = Literal["tailscale", "local", "trusted-proxy"]  # the identity provider of an instance
-Role: TypeAlias = Literal["owner", "editor", "viewer", "agent"]  # what a principal may change (check_role)
 Via: TypeAlias = Literal["header", "token", "loopback-agent", "local-owner"]  # how identify() knew the principal
 AUTH_PROVIDERS: tuple[AuthProvider, ...] = get_args(AuthProvider)
-ROLES: tuple[Role, ...] = get_args(Role)
-DEFAULT_ROLE: Role = "editor"  # a person without a role field - every v0.1 person
 # people.json as a role lookup reads it: {login: role} of everyone listed, or why the file cannot be used (fail closed)
 PeopleRoles: TypeAlias = Mapping[str, Role] | PeopleUnreadable
 VIEWER_POSTS = ("/api/pick", "/api/revision-build")  # computations a viewer may still run (no state change)
 HEADER_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}")
-LOGIN_MAX = 200
-NAME_MAX = 100
 LOOPBACK_AGENT_DEPRECATION = (
     "a request from loopback without an identity header or token is treated as the agent - "
     "this is deprecated and will be removed; give agents a token (limn token create <instance>) "
@@ -77,7 +85,20 @@ TAILNET_HEADERLESS = (
     "신원 헤더 없는 원격 요청입니다(테일넷의 태그 장치 등) — 에이전트는 `Authorization: Bearer <토큰>` 을 "
     "보내세요(`limn token create <인스턴스>`)."
 )
-OWNER_POSTS = ("/api/clear",)  # bulk-destructive: only the owner (a person), and only with a confirmation
+# The owner's member operations over HTTP (docs/superpowers/specs/2026-11-22-viewer-access-management-design.md §D):
+# path -> the operation name the authority is bound to. Registering a path here is what grants it - the route table
+# alone grants nothing - and each path is an owner-only POST.
+MEMBER_OPERATIONS = {
+    "/api/access/managed": "access-managed",
+    "/api/members/add": "member-add",
+    "/api/members/role": "member-role",
+    "/api/members/remove": "member-remove",
+}
+# bulk-destructive or access-changing: only the owner (a person); /api/clear also needs a confirmation
+OWNER_POSTS = ("/api/clear", *MEMBER_OPERATIONS)
+OWNER_READS = frozenset({"/api/access"})  # reads only the owner may make: the member list and who could be let in
+MEMBER_OWNER_ONLY = "멤버와 접근 설정은 소유자(owner)만 바꿉니다 — 소유자에게 부탁하세요."
+ACCESS_READ_OWNER_ONLY = "멤버와 접근 설정은 소유자(owner)만 봅니다 — 소유자에게 부탁하세요."
 OWNER_POST_RE = re.compile(r"/api/pins/\d+/purge")  # permanent delete from the Trash (v0.2.2): only the owner
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 DEFAULT_PORT = {"http": 80, "https": 443}
@@ -409,20 +430,6 @@ def is_loopback_bind(addr: str) -> bool:
     return ipaddress.ip_address(addr).is_loopback
 
 
-def valid_login(login: object) -> bool:
-    """A person's login: non-empty, printable, no whitespace anywhere (a tailnet login is an e-mail address or
-    user@github; --local-user and LOCAL_USER already required this), not the agent's 'local' or 'agent:...'. The same rule
-    for identity headers, --local-user and `limn member add` (v0.2.1: 'bad login' used to be accepted by the CLI)."""
-    return (
-        isinstance(login, str)
-        and 0 < len(login) <= LOGIN_MAX
-        and login.isprintable()
-        and not any(c.isspace() for c in login)
-        and login != LOCAL_ACTOR["login"]
-        and not login.startswith(AGENT_LOGIN_PREFIX)
-    )
-
-
 def local_owner_actor(local_user: str | None) -> Json:
     """The owner under --auth local: --local-user, else $USER, else 'owner' (read from the environment per call)."""
     login = local_user or os.environ.get("USER") or "owner"
@@ -564,25 +571,35 @@ def admit(
     headers: Message | None,
     settings: AccessSettings,
     roles: Callable[[], PeopleRoles],
+    managed: Callable[[], ManagedAccess],
 ) -> None:
-    """May this principal use the instance at all? Only people vouched for by a header are filtered: --members-only
+    """May this principal use the instance at all? Only people vouched for by a header are filtered. While access.json
+    says managed (managed(), read only for such a person), people.json alone decides: a login it lists is admitted, any
+    other is refused not_member, and --allow and --members-only are ignored - so an empty or absent people.json admits no
+    one, and an unusable one refuses everyone (people_unreadable). An unusable access.json refuses them all
+    (access_unreadable). Otherwise, as before the flag existed, --members-only
     admits logins in people.json (roles(), read only then) or --allow; otherwise --allow (if set) admits only its
     logins. Without either, everyone the provider identifies is admitted (and recorded in people.json as an editor on
     first visit). While people.json cannot be used, it lists no one (is_member): --members-only then admits only
     --allow's logins. Tokens and the local owner are always admitted. A headerless request through the proxy (a tagged
     device) never gets here unless --tailnet-agent is on (identify refuses it), and even then it is refused when a
-    list is configured, as in v0.1. A refusal raises HTTPError 403 (not_member / not_allowed / headerless) with its
+    list is configured, as in v0.1: --allow or --members-only was given, or access.json is managed or unusable (when
+    it cannot be told whether a list exists, one is assumed). A refusal raises HTTPError 403 (not_member / not_allowed / headerless) with its
     browser page."""
     login = p.actor.get("login")
     if p.via == "header":
-        if settings.members_only:
+        state = managed()
+        if state == "unusable":
+            raise HTTPError(
+                403,
+                "access.json 을 읽을 수 없어 입장을 확인할 수 없습니다 — 소유자가 파일을 고치거나 지워야 합니다.",
+                reason="access_unreadable",
+            )
+        if state == "managed":
+            admit_listed(roles(), login)
+        elif settings.members_only:
             if login not in settings.allow and not is_member(roles(), login):
-                raise HTTPError(
-                    403,
-                    "이 뷰어의 멤버가 아닙니다: %s — 소유자가 `limn member add` 로 추가해야 합니다." % login,
-                    page=("not-member", {"login": login}),
-                    reason="not_member",
-                )
+                raise not_member_refusal(login)
         elif settings.allow and login not in settings.allow:
             raise HTTPError(
                 403,
@@ -590,7 +607,7 @@ def admit(
                 page=("not-allowed", {"login": login}),
                 reason="not_allowed",
             )
-    elif p.via == "loopback-agent" and (settings.allow or settings.members_only):
+    elif p.via == "loopback-agent" and (settings.allow or settings.members_only or managed() != "not-managed"):
         hname, _ = split_host(host or "")
         if hname.endswith(".ts.net") or (headers is not None and came_through_proxy(headers)):
             raise HTTPError(
@@ -601,13 +618,50 @@ def admit(
             )
 
 
+def admitted_without_people(p: Principal) -> bool:
+    """Does the instance admit this principal whatever people.json holds? admit() filters only the people a header
+    vouches for, so a token principal and the machine's own user under --auth local (via "local-owner") are always let
+    in: dropping or omitting their people.json row cannot shut them out. The reserved login `local` is not what decides
+    it - with --local-user the local owner's login looks like anyone else's - so a rule on the login (valid_login)
+    cannot stand in for this one. The loopback agent is not counted: admit() does refuse it on a tailnet host once a
+    list is configured. The owner's access routes ask this about the principal that pressed
+    (limn.security.access_service.apply_managed)."""
+    return p.via in ("token", "local-owner")
+
+
+def admit_listed(listed: PeopleRoles, login: object) -> None:
+    """The managed-instance rule: admit a person people.json lists. A refusal is 403 not_member, as under --members-only
+    (same text, same page), or people_unreadable while people.json cannot be used, which names that file so the person
+    is not told they were left off a list nobody can read."""
+    if is_member(listed, login):
+        return
+    if type(listed) is PeopleUnreadable:
+        raise HTTPError(
+            403,
+            "people.json 을 읽을 수 없어 멤버를 확인할 수 없습니다 — 소유자가 파일을 고쳐야 합니다.",
+            reason="people_unreadable",
+        )
+    raise not_member_refusal(login)
+
+
+def not_member_refusal(login: object) -> HTTPError:
+    """The 403 not_member refusal, with its not-member page: the one answer to a person the instance's member list does
+    not hold, under --members-only and on a managed instance alike."""
+    return HTTPError(
+        403,
+        "이 뷰어의 멤버가 아닙니다: %s — 소유자가 `limn member add` 로 추가해야 합니다." % login,
+        page=("not-member", {"login": login}),
+        reason="not_member",
+    )
+
+
 def check_role(p: Principal, path: str, trash_days: int) -> None:
     """Role rule for state-changing (POST) requests, applied once in the handler before dispatch. A viewer may only
     run computations (/api/pick, /api/revision-build); an agent may use declared actions except confirm; editor and owner may
     do everything a person could in v0.1, except the bulk-destructive OWNER_POSTS (/api/clear, v0.2.1) and the permanent
     delete from the Trash (OWNER_POST_RE, v0.2.2), which only the owner may call; that refusal quotes trash_days, how
-    long the Trash keeps a pin. Other owner-only operations - members, tokens, settings - are CLI/file level. A refusal
-    raises HTTPError 403 (viewer_only / confirm_by_human / owner_only)."""
+    long the Trash keeps a pin. The member operations (MEMBER_OPERATIONS) are owner-only too. Tokens and the other
+    settings are CLI/file level. A refusal raises HTTPError 403 (viewer_only / confirm_by_human / owner_only)."""
     if p.role == "viewer" and path not in VIEWER_POSTS:
         raise HTTPError(
             403, "보기 권한(viewer)만 있는 계정입니다 — 핀·답글·닫기 같은 변경은 할 수 없습니다.", reason="viewer_only"
@@ -617,7 +671,9 @@ def check_role(p: Principal, path: str, trash_days: int) -> None:
     if path in OWNER_POSTS and p.role != "owner":
         raise HTTPError(
             403,
-            "모든 핀을 지우는 일은 소유자(owner)만 합니다 — 에이전트·편집자는 핀을 하나씩 닫으세요.",
+            MEMBER_OWNER_ONLY
+            if path in MEMBER_OPERATIONS
+            else "모든 핀을 지우는 일은 소유자(owner)만 합니다 — 에이전트·편집자는 핀을 하나씩 닫으세요.",
             reason="owner_only",
         )
     if OWNER_POST_RE.fullmatch(path) and p.role != "owner":
@@ -682,14 +738,23 @@ def post_operation(path: str) -> tuple[str, int | None]:
         return DOCUMENT_OPERATIONS[path], None
     if path == "/api/clear":
         return "clear", None
+    if path in MEMBER_OPERATIONS:
+        return MEMBER_OPERATIONS[path], None
     match = re.fullmatch(r"/api/pins/([0-9]{1,20})/([a-z]+)", path)
     if match and match[2] in PIN_OPERATIONS:
         return match[2], int(match[1])
     raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
 
 
-def check_read(path: str) -> None:
-    """Admitted principals may read declared paths; new registrations start denied."""
+def check_read(path: str, p: Principal) -> None:
+    """Admitted principals may read declared paths; new registrations start denied. The paths of OWNER_READS are read
+    only by the owner role: any other role or door (an editor, a viewer, a token, the headerless loopback agent) is a
+    403 owner_only. The rule is the role alone, as for every other owner-only operation, so the --auth local owner
+    (role owner, via local-owner) reads them like a header-vouched owner."""
+    if path in OWNER_READS:
+        if p.role != "owner":
+            raise HTTPError(403, ACCESS_READ_OWNER_ONLY, reason="owner_only")
+        return
     if path in READ_PATHS or re.fullmatch(r"/api/pins/[0-9]{1,20}", path):
         return
     if path.startswith(("/pages/", "/vendor/pdfjs/", "/vendor/markdown-it/", "/vendor/katex/", "/vendor/pretendard/")):
@@ -805,14 +870,17 @@ def _valid_tokens(d: object) -> list[Json]:
 
 
 def load_tokens(state: Path, strict: bool = False) -> list[Json]:
-    """The token entries of <state>/tokens.json ([] if absent). An unreadable file warns on stderr and accepts no token.
+    """The token entries of <state>/tokens.json ([] if absent). An unreadable file - it cannot be read, is not UTF-8
+    JSON, or is nested past the parser's depth - warns on stderr and accepts no token.
     strict=True (the CLI, before rewriting the file) raises ValueError on an unreadable or malformed file instead."""
     p = Path(state) / "tokens.json"
     try:
         d = json.loads(p.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return []
-    except (OSError, ValueError) as e:
+    # UnicodeDecodeError and JSONDecodeError are ValueErrors; a document nested past the parser's depth raises
+    # RecursionError, which is neither (limn.security.access_store and people_store read their files the same way).
+    except (OSError, ValueError, RecursionError) as e:
         if strict:
             raise ValueError("cannot read %s: %s" % (p, e)) from e
         print("warning: cannot read %s (%s) - no agent token is accepted until it is fixed" % (p, e), file=sys.stderr)
@@ -851,21 +919,9 @@ def bearer_of(headers: Message) -> str | None:
 # ---------------------------------------------------------------- people.json roles and members
 
 
-def is_role(v: object) -> TypeGuard[Role]:
-    """Is v one of the four role names (ROLES)?"""
-    return isinstance(v, str) and v in ROLES
-
-
 def is_auth_provider(v: object) -> TypeGuard[AuthProvider]:
     """Is v one of the identity provider names (AUTH_PROVIDERS)?"""
     return isinstance(v, str) and v in AUTH_PROVIDERS
-
-
-def role_value(v: object) -> Role:
-    """A people.json role field -> the role. Missing = editor (every v0.1 person); an unknown value = viewer (fail closed)."""
-    if v is None:
-        return DEFAULT_ROLE
-    return v if is_role(v) else "viewer"
 
 
 def roles_of(rows: Sequence[Mapping[str, Any]]) -> dict[str, Role]:
@@ -874,7 +930,7 @@ def roles_of(rows: Sequence[Mapping[str, Any]]) -> dict[str, Role]:
 
 
 def people_roles_of(read: list[Json] | PeopleUnreadable) -> PeopleRoles:
-    """What a role lookup holds for one read of people.json (limn.security.people.load_people): roles_of its rows, or the
+    """What a role lookup holds for one read of people.json (limn.security.people_store.load_people): roles_of its rows, or the
     PeopleUnreadable itself - never an empty mapping, which would make everyone the DEFAULT_ROLE (an escalation)."""
     return read if isinstance(read, PeopleUnreadable) else roles_of(read)
 

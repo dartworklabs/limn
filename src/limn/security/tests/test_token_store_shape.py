@@ -93,6 +93,19 @@ class MalformedTokenHTTP(Base):
                 self.assertEqual(path.stat().st_mtime_ns, before)
                 self.assertEqual(pins.read_bytes() if pins.exists() else None, pin_before)
 
+    def test_a_deeply_nested_token_file_is_bad_token_not_an_internal_error(self):
+        """A tokens.json nested past the parser's depth is an unusable file like any other: the read answers no rows
+        and the request is 401 bad_token. It used to raise RecursionError out of the loader, which no caller catches,
+        so every bearer request answered 500 internal."""
+        state = self.src.parent / "state"
+        path = state / "tokens.json"
+        path.write_text("[" * 200_000 + "]" * 200_000, encoding="utf-8")
+        out = self.talk(
+            req("GET", "/api/pins", b"", headers={"Authorization": "Bearer limn_synthetic_unknown"}),
+        )
+        code, _, payload = split_resp(out)
+        self.assertEqual((code, json.loads(payload).get("reason")), (401, "bad_token"))
+
 
 @seed(20261011)
 @settings(max_examples=100, deadline=None, database=None)

@@ -54,6 +54,8 @@ export const FEATURES = {
   pins: 'the pin list and cards, their thread, actions, replies and edits',
   verdict: 'verdict pins and the page verdict panel',
   offline: 'reading and pinning while cut off: the copies and the queue',
+  access:
+    "the owner's access management screen: who is a member, who could be let in, and the switch to managing from the viewer",
   entry: 'the page entry point: the click and key dispatch, boot()',
 };
 
@@ -99,6 +101,7 @@ export const ALLOWED = [
   ['offline', 'composer', 'a pin saved while cut off is queued instead'],
   ['offline', 'pins', 'a sent queued pin becomes a pin of the list'],
   ['offline', 'verdict', 'the queue holds verdicts back and says why'],
+  ['access', 'layout', 'the access screen opens as the dialog the frame shows (showSheet)'],
   ['entry', ANY, 'the entry point wires every feature: the click and key dispatch call each feature'],
 ];
 

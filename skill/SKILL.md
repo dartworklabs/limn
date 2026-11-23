@@ -236,7 +236,7 @@ After the number, the number cell carries short plain-word markers joined by ` �
 | Exposure | `tailscale serve` only. Never `tailscale funnel` (public internet) |
 | Before announcing the address | A `curl` from inside the tailnet returns `200`, and `tailscale serve status` shows tailnet only |
 | Host / Origin check | Unknown `Host` or cross-origin `Origin` gets `403`. `--no-origin-check` is an escape hatch only |
-| Authentication | The tailnet is the boundary (`--auth tailscale`, the default); agents use `limn token create`. To restrict, `--members-only` / `--allow <login>,…` and `limn member` roles |
+| Authentication | The tailnet is the boundary (`--auth tailscale`, the default); agents use `limn token create`. To restrict, `--members-only` / `--allow <login>,…` and `limn member` roles. An owner may switch an instance to managed access, after which `people.json` alone admits people and the owner manages members from the viewer (`GET /api/access` and the member POSTs are owner-only; `--allow` and `--members-only` are then ignored) |
 | Shutdown | `tailscale serve --https=<port> off` |
 
 ## Common API

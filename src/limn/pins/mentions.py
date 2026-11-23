@@ -2,7 +2,7 @@
 §@태그·사람·이벤트, §담당).
 
 Post text keeps '@name' as-is; only the resolved login is recorded in `mentions`. The candidates come from
-limn.security.people.known_people(). A note save notifies the people it newly tags, at most once per NOTE_MENTION_COOLDOWN_S per
+limn.security.people_store.known_people(). A note save notifies the people it newly tags, at most once per NOTE_MENTION_COOLDOWN_S per
 (editor, person, pin) - note_mention_targets() decides that from the recent events.jsonl records the caller reads.
 
 Pure: no files, no clock, no HTTP, no server. Every fact (the people, the records, the time) comes in as an argument.

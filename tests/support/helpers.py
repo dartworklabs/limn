@@ -844,7 +844,11 @@ class ApplicationFixture:
     def access_log_lines(self):
         """Render the actual startup security summary for configuration tests."""
         return ps.startup.access_log_lines(
-            self.C.access, len(self.current_tokens()), ps.file_present(self.C.access.agent_token_file)
+            self.C.access,
+            len(self.current_tokens()),
+            ps.file_present(self.C.access.agent_token_file),
+            self.managed_access(),
+            self.C.allow,
         )
 
     def remote_base_for(self, host):

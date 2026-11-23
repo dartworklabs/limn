@@ -114,3 +114,43 @@ def test_token_and_member_commands_run_without_the_server(tmp_path):
     assert result == {"codes": [0] * 8, "loaded": []}
     actions = [json.loads(line)["action"] for line in (tmp_path / "state" / "audit.jsonl").read_text().splitlines()]
     assert actions == ["token_created", "token_revoked", "member_added", "member_role", "member_removed"]
+
+
+class TestMemberCliLastOwner:
+    """`limn member remove|role` refuse to leave an instance without an owner (owner's decision, 2026-11-22)."""
+
+    @staticmethod
+    def _members(tmp_path, *pairs):
+        state = str(tmp_path / "state")
+        for login, role in pairs:
+            assert limn("member", "add", "--state-dir", state, login, "--role", role).returncode == 0
+        return state
+
+    @staticmethod
+    def _roles(state):
+        rows = json.loads((Path(state) / "people.json").read_text(encoding="utf-8"))["people"]
+        return {x["login"]: x["role"] for x in rows}
+
+    def test_member_remove_refuses_last_owner(self, tmp_path):
+        state = self._members(tmp_path, ("a@example.com", "owner"), ("b@example.com", "editor"))
+        r = limn("member", "remove", "--state-dir", state, "a@example.com")
+        assert r.returncode == 1
+        assert r.stderr.startswith("limn: ") and len(r.stderr.strip().splitlines()) == 1 and "a@example.com" in r.stderr
+        assert self._roles(state) == {"a@example.com": "owner", "b@example.com": "editor"}
+
+    def test_member_role_refuses_demoting_last_owner(self, tmp_path):
+        state = self._members(tmp_path, ("a@example.com", "owner"))
+        r = limn("member", "role", "--state-dir", state, "a@example.com", "viewer")
+        assert r.returncode == 1
+        assert r.stderr.startswith("limn: ") and len(r.stderr.strip().splitlines()) == 1
+        assert self._roles(state) == {"a@example.com": "owner"}
+
+    def test_add_new_owner_then_remove_old_works(self, tmp_path):
+        state = self._members(tmp_path, ("a@example.com", "owner"))
+        assert limn("member", "add", "--state-dir", state, "b@example.com", "--role", "owner").returncode == 0
+        assert limn("member", "remove", "--state-dir", state, "a@example.com").returncode == 0
+        assert self._roles(state) == {"b@example.com": "owner"}
+
+    def test_two_owners_allow_demoting_one(self, tmp_path):
+        state = self._members(tmp_path, ("a@example.com", "owner"), ("b@example.com", "owner"))
+        assert limn("member", "role", "--state-dir", state, "a@example.com", "editor").returncode == 0

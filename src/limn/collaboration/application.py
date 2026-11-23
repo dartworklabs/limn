@@ -11,7 +11,8 @@ from limn.collaboration.contracts import Notice
 from limn.collaboration.directory import PeopleDirectory
 from limn.collaboration.notices import Notices
 from limn.runtime.documents import Doc
-from limn.security import access, people
+from limn.security import access, people_store as people
+from limn.security.values import ManagedAccess
 from limn.web.routes import RouteBundle
 
 Json = dict[str, Any]
@@ -34,10 +35,11 @@ class PeopleView:
         warning: Callable[[], people.UnreadableWarning],
         participants: Callable[[bool], Sequence[people.Row]],
         roles: Callable[[], access.PeopleRoles],
+        managed: Callable[[], ManagedAccess],
         clock: Callable[[], float],
     ) -> "PeopleView":
         """Create a view from the run's people resources and pin facts."""
-        return cls(PeopleDirectory(state, people_file, lock, seen, warning, participants, roles, clock))
+        return cls(PeopleDirectory(state, people_file, lock, seen, warning, participants, roles, managed, clock))
 
     def load(self) -> list[people.Row] | people.PeopleUnreadable:
         """Load the current people file fail-closed."""
@@ -97,6 +99,7 @@ def assemble_collaboration(
     warning: Callable[[], people.UnreadableWarning],
     participants: Callable[[bool], Sequence[people.Row]],
     roles: Callable[[], access.PeopleRoles],
+    managed: Callable[[], ManagedAccess],
     events_path: Callable[[], Path],
     events_lock: Callable[[], threading.Lock],
     cache: Callable[[], events.ReadCache],
@@ -113,6 +116,7 @@ def assemble_collaboration(
         warning=warning,
         participants=participants,
         roles=roles,
+        managed=managed,
         clock=clock,
     )
     notices = Notices(events_path, events_lock, cache, clock, stamp, docs)

@@ -94,7 +94,11 @@ and [ADR-0016](docs/adr/0016-optional-connection-admission.md).
 > the port is a collaborator unless you narrow it (`--members-only`, roles via `limn member`). `--auth local` is
 > for one user on their own machine; `--auth trusted-proxy` is for running behind an authenticating reverse
 > proxy, and is the only provider that may `--bind` a non-loopback address. Agents use API tokens
-> (`limn token create`). Never a public URL without a proxy, never `tailscale funnel`. See [SECURITY.md](SECURITY.md).
+> (`limn token create`). An owner can also switch an instance to **managed access** from the viewer, after which
+> `people.json` alone decides who is admitted and the owner admits co-authors from the screen instead of editing a
+> config file over ssh — the switch is one press, defaults to admitting exactly who gets in today, and an unusable
+> `access.json` refuses every header-identified person. Never a public URL without a proxy, never `tailscale funnel`.
+> See [SECURITY.md](SECURITY.md).
 
 ## Instances (one per manuscript)
 
@@ -106,6 +110,7 @@ limn status paper2 · limn url paper2 · limn snippet paper2 # details · tailne
 limn update [--dry-run] [--ref vX.Y.Z]                     # reinstall via uv tool, restart running instances
 limn stop paper2 · limn start paper2 · limn remove paper2
 limn token create paper2 · limn member add paper2 <login> --role viewer   # agent token (shown once) · roles
+limn member add paper2 <login> --role owner                 # the first owner; only the command line makes one
 limn token create paper2 --save                            # token file ~/.config/limn/paper2.token for agents on this machine
 ```
 

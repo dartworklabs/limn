@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Literal
 
 from limn.runtime.documents import RunPaths
-from limn.runtime.paths import AUDIT_FILE, EVENTS_FILE, PEOPLE_FILE, PinFiles
+from limn.runtime.paths import ACCESS_FILE, AUDIT_FILE, EVENTS_FILE, PEOPLE_FILE, PinFiles
 from limn.security.access import AccessSettings, AuthProvider, HostEntry, IPNetwork
 
 # A high-saturation "700-level" palette with enough contrast on both the dark and light theme backgrounds
@@ -141,6 +141,11 @@ class RunConfig:
     def people_file(self) -> Path:
         """people.json: the logins, names and roles of the people who used this instance."""
         return self.state / PEOPLE_FILE
+
+    @property
+    def access_file(self) -> Path:
+        """access.json: whether people.json decides who is admitted (the viewer-managed access flag)."""
+        return self.state / ACCESS_FILE
 
     @property
     def events_file(self) -> Path:

@@ -38,6 +38,7 @@ from urllib.parse import parse_qs, urlparse
 from limn.administration import serve_documents as startup_documents
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.pins.location import source as pick_source
+from limn.platform.tailnet import TailnetDirectory, TailnetUser
 from limn.revisions import core as revisions, execution as revision_execution
 from limn.security.access import LOCAL_ACTOR
 
@@ -348,6 +349,7 @@ NOT_WALKED: dict[str, tuple[float | None, str]] = {
     "#search-open": (ICON, "the folded search field's magnifier button"),
     "#status button.nt-x": (ICON, "a status line message's [x]"),
     ".nt-acts button.nt-x": (ICON, "a message's [x]"),
+    ".acc-fix-ic": (ICON, "the lock before a fixed row of the access transition: an icon beside the row's words"),
     ".av.agent": (ICON, "an agent's avatar, a bot icon on --accent"),
     ".pin .card-meta .as-chip .ic": (ICON, "the pressable assignee's pencil"),
     ".qmark button.qmark-jump": (ICON, "a kept pin's badge on the page: a clock in an icon button"),
@@ -992,6 +994,43 @@ class ContrastWalk(BrowserBase):
         finally:
             self.no_pins = False
 
+    def scene_access(self):
+        """The owner's access screen (js/access/): the lists of an instance that still runs on --allow with the band, a hovered
+        member row, and the transition's two columns - the rows, notes, the locked owner and the summary read in both
+        themes."""
+        # people.json is the roster the walk's setUp recorded its people into: Alice becomes the owner in it, and the
+        # file is put back as it was when the scene ends (the scenes after it mention those people)
+        path = ps.APP.C.people_file
+        before = path.read_text(encoding="utf-8")
+        roster = json.loads(before)
+        for person in roster["people"]:
+            if person["login"] == "alice@example.com":
+                person["role"] = "owner"
+        path.write_text(json.dumps(roster), encoding="utf-8")
+        listed = TailnetDirectory((TailnetUser("erin@example.com", "Erin Han", None),), True, None)
+        try:
+            with mock.patch.object(ps, "read_tailnet_directory", return_value=listed):
+                page = self.open(0, **DEVICES[self.device])
+                page.wait_for_selector("#m-access", state="attached")
+                page.click("#btn-more")
+                page.click("#m-access")
+                page.wait_for_selector("#access[open] #access-body .acc-sec")
+                settle(page)
+                self.look(page, "access", "#access")
+                self.hover(page, "#access .acc-row", "access row")
+                page.click('[data-act="access-manage"]')
+                page.wait_for_selector("#access-body .acc-cols")
+                settle(page)
+                self.look(page, "access transition", "#access")
+                page.click('[data-act="access-manage-apply"]')  # the switch goes through: its outcome block
+                page.wait_for_selector("#access-body .acc-result")
+                settle(page)
+                self.look(page, "access result", "#access")
+                page.context.close()
+        finally:
+            path.write_text(before, encoding="utf-8")
+            ps.APP.C.access_file.unlink(missing_ok=True)
+
     def scene_queue(self):
         """The pins kept while cut off (js/offline/view.ts): their marks on the page, one waiting and one held, and their
         rows in the panel - a waiting one, a held one with its reason, one drawn on another PDF, one with no note, and
@@ -1039,6 +1078,7 @@ class ContrastWalk(BrowserBase):
             self.scene_markdown()
             self.scene_empty()
             self.scene_queue()
+            self.scene_access()
 
 
 class RenderedSecondaryContrast(ContrastWalk):

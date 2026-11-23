@@ -33,7 +33,7 @@ function backLayer(
 function sheetDialog() {
   return findMaybe(
     document,
-    '#nav-sheet[open],#more[open],#help[open],#trash[open],#status-list[open]',
+    '#nav-sheet[open],#more[open],#help[open],#trash[open],#status-list[open],#access[open]',
     HTMLDialogElement,
   );
 }
@@ -81,7 +81,7 @@ function disarmBack() {
 }
 // Listen after document navigation, which reads the back entry before it is consumed.
 function watchBackLayer(closeTopLayer: () => void, setHash: (doc: string) => void) {
-  for (const dialog of $$('#nav-sheet,#more,#help,#trash,#status-list'))
+  for (const dialog of $$('#nav-sheet,#more,#help,#trash,#status-list,#access'))
     new MutationObserver(() => syncBackLayer(closeTopLayer)).observe(dialog, {
       attributes: true,
       attributeFilter: ['open'],

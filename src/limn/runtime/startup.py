@@ -49,6 +49,7 @@ from limn.security.access import (
     parse_public_hosts,
     valid_login,
 )
+from limn.security.values import ManagedAccess
 
 APP_NAME = "limn"
 # Label shown so tabs don't get confused when multiple manuscript viewers are open at once (§Running multiple manuscript instances at once).
@@ -163,10 +164,14 @@ def access_options(a: argparse.Namespace) -> AccessOptions | StartupRefused:
     )
 
 
-def access_log_lines(s: AccessOptions, tokens: int, token_file_present: bool) -> list[str]:
+def access_log_lines(
+    s: AccessOptions, tokens: int, token_file_present: bool, managed: ManagedAccess, allow: frozenset[str]
+) -> list[str]:
     """Startup log lines about access: the provider line, and warnings for a non-loopback bind / the deprecated
     loopback agent. tokens is the number of valid entries in tokens.json; token_file_present whether
-    s.agent_token_file exists (only shown when one is configured)."""
+    s.agent_token_file exists (only shown when one is configured). managed is the instance access flag now
+    (access.json) and allow the --allow logins: a managed instance says so, and says that --allow and --members-only
+    are ignored when either was given."""
     parts: list[str] = [s.auth]
     if s.auth == "local":
         parts.append("owner %s" % local_owner_actor(s.local_user)["login"])
@@ -180,9 +185,18 @@ def access_log_lines(s: AccessOptions, tokens: int, token_file_present: bool) ->
     if s.agent_loopback:  # only meaningful where the loopback agent exists
         parts.append("tailnet agent %s" % ("on (deprecated)" if s.tailnet_agent else "off"))
     parts.append("members-only %s" % ("on" if s.members_only else "off"))
+    if managed == "managed":
+        parts.append("access managed (people.json decides)")
+    if managed == "unusable":
+        parts.append("access.json unusable (header-identified people refused)")
     if s.public_hosts:
         parts.append("public hosts %s" % ",".join(n + (":%d" % p if p else "") for n, p in s.public_hosts))
     out = ["auth        " + " · ".join(parts)]
+    if managed == "managed" and (s.members_only or allow):
+        out.append(
+            "warning     access.json is managed: %s ignored (people.json decides who is admitted)"
+            % " and ".join(n for n, given in (("--allow", bool(allow)), ("--members-only", s.members_only)) if given)
+        )
     if not is_loopback_bind(s.bind):
         out.append(
             "warning     bound to %s (not loopback) - identity provider: %s. Anyone who can reach this port "

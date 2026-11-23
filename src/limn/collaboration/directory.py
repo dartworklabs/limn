@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from limn.platform.effects import require_writer
-from limn.security import access, people
+from limn.security import access, people_store as people
 from limn.security.access import is_agent_actor
+from limn.security.values import ManagedAccess
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,7 @@ class PeopleDirectory:
     warning: Callable[[], people.UnreadableWarning]
     participants: Callable[[bool], Sequence[people.Row]]
     roles: Callable[[], access.PeopleRoles]
+    managed: Callable[[], ManagedAccess]
     clock: Callable[[], float]
 
     def book(self) -> people.PeopleBook:
@@ -35,12 +37,15 @@ class PeopleDirectory:
         return rows
 
     def record(self, actor: people.Row, now: float | None = None, role: access.Role | None = None) -> bool:
-        """Record a human after a real change; read scopes and local/token agents cannot record people."""
+        """Record a human after a real change; read scopes and local/token agents cannot record people. While the
+        access flag is on, the write updates an existing row and creates none (people.record_person)."""
         require_writer()
         login = (actor or {}).get("login")
         if not login or is_agent_actor(actor):
             return False
-        return people.record_person(self.book(), actor, self.clock() if now is None else now, role, access.DEFAULT_ROLE)
+        return people.record_person(
+            self.book(), actor, self.clock() if now is None else now, role, access.DEFAULT_ROLE, self.managed
+        )
 
     def known(self, records: Sequence[people.Row] | None = None) -> dict[str, people.Row]:
         """People from people.json and pin actors, excluding agents."""

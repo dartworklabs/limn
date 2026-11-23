@@ -55,7 +55,7 @@ from limn.runtime.documents import DOC_KEY_RE, Doc
 from limn.runtime.resources import RuntimeResources
 from limn.security.access import Role
 from limn.security.audit import AuditAction
-from limn.security.people import is_actor as _is_actor
+from limn.security.people_store import is_actor as _is_actor
 from limn.web.parse import DocumentFacts
 
 THREAD_MAX = 200
@@ -268,7 +268,7 @@ class PinCommands:
 
     def parse_record(self, r: object) -> Pin | Broken:
         """The store's parse of a pins.jsonl line (limn.pins.record.parse_record) with DOC_KEY_RE and
-        limn.security.people.is_actor: the pin r holds, or Broken for a record the store may not trust."""
+        limn.security.people_store.is_actor: the pin r holds, or Broken for a record the store may not trust."""
         return record_parse_record(r, DOC_KEY_RE.fullmatch, _is_actor)
 
     def parse_trashed(self, r: object) -> TrashedPin | Broken:

@@ -281,12 +281,15 @@ class AuditLogCli(unittest.TestCase):
         """Each membership change records who and the role before and after."""
         self.limn("member", "add", "--state-dir", str(self.state), "bob@example.com")
         self.limn("member", "role", "--state-dir", str(self.state), "bob@example.com", "owner")
+        # The last owner cannot be removed: bob goes only after another owner exists.
+        self.limn("member", "add", "--state-dir", str(self.state), "carol@example.com", "--role", "owner")
         self.limn("member", "remove", "--state-dir", str(self.state), "bob@example.com")
         self.assertEqual(
             [(r["action"], r["details"]) for r in audit_rows(self.state)],
             [
                 ("member_added", {"login": "bob@example.com", "role": "editor"}),
                 ("member_role", {"login": "bob@example.com", "role": "owner", "previous_role": "editor"}),
+                ("member_added", {"login": "carol@example.com", "role": "owner"}),
                 ("member_removed", {"login": "bob@example.com", "previous_role": "owner"}),
             ],
         )

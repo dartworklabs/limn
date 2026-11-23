@@ -9,7 +9,7 @@ from limn.administration.targets import CliError, cli_audit, split_target
 def cmd_member(argv: Sequence[str]) -> int:
     """`limn member add|list|remove|role ...` -> exit status.
 
-    Edit <state>/people.json through member_state in limn.security.people's format with
+    Edit <state>/people.json through member_state in limn.security.people_store's format with
     cli_audit. A running server applies the change from its next request. A missing
     member or unknown subcommand raises CliError; invalid input, duplicate members,
     and an unreadable file raise ValueError. main() prints both.

@@ -2,8 +2,9 @@
 
 events.jsonl keeps only the newest EVENTS_KEEP records, so ordinary notification traffic pushed out the record of who
 cleared every pin (issue #10 L5). Destructive and owner actions are therefore also written here, one JSON object per
-line, appended under a cross-process lock and never rewritten or truncated by Limn. The HTTP handler records clear and
-purge (via "http"); the state helpers behind `limn token` / `limn member` record theirs as the OS account (via "cli").
+line, appended under a cross-process lock and never rewritten or truncated by Limn. The HTTP handler records clear,
+purge, the member changes and the access flag the owner switches (`access_managed`, {managed, by}; via "http"); the
+state helpers behind `limn token` / `limn member` record theirs as the OS account (via "cli").
 The existing events (`cleared`, `purged`) are still written for compatibility. Old servers never open this file.
 
 audit_entry() builds a line from values the caller passes (the clock included); append_audit() is the only writer of
@@ -24,7 +25,14 @@ from limn.runtime.paths import AUDIT_FILE as AUDIT_FILE
 
 # What an audit line records (action) and through which door it came (via).
 AuditAction: TypeAlias = Literal[
-    "cleared", "purged", "token_created", "token_revoked", "member_added", "member_removed", "member_role"
+    "cleared",
+    "purged",
+    "token_created",
+    "token_revoked",
+    "member_added",
+    "member_removed",
+    "member_role",
+    "access_managed",
 ]
 AuditVia: TypeAlias = Literal["http", "cli"]
 AUDIT_ACTIONS: tuple[AuditAction, ...] = get_args(AuditAction)

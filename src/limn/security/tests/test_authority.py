@@ -10,10 +10,15 @@ from limn.pins.claims.service import PinClaims
 from limn.security import access
 from limn.web.errors import HTTPError
 
+from helpers import ps
+from helpers_access import AccessBase
 from helpers_authority import post_authority
 from helpers_pin_service import ServiceBase
 
 ACTOR = {"login": "alice@example.com", "name": "Alice"}
+READER = access.Principal(
+    dict(ACTOR), "viewer", "header"
+)  # the lowest admitted role: every ordinary read is open to it
 OPERATIONS = (
     "/api/pick",
     "/api/revision-build",
@@ -61,7 +66,7 @@ def test_new_operations_never_acquire_authority(role, path):
 def test_new_read_registration_is_denied():
     """Admitted identity alone does not authorize a newly registered read path."""
     with pytest.raises(HTTPError) as error:
-        access.check_read("/api/new-read")
+        access.check_read("/api/new-read", READER)
     assert error.value.code == 404
 
 
@@ -69,7 +74,7 @@ def test_new_read_registration_is_denied():
 def test_the_bundled_library_families_are_declared_reads(path):
     """The PDF.js and Pretendard folders are the two bundled-file families an admitted identity reads; their routes
     validate the leaf name."""
-    access.check_read(path)
+    access.check_read(path, READER)
 
 
 @pytest.mark.parametrize(
@@ -80,7 +85,7 @@ def test_other_vendor_paths_are_denied(path):
     """A folder of vendor/ that is not a served family (Lucide is inlined, never served), the bare prefixes and a
     look-alike family name are not reads."""
     with pytest.raises(HTTPError) as error:
-        access.check_read(path)
+        access.check_read(path, READER)
     assert error.value.code == 404
 
 
@@ -419,3 +424,62 @@ def test_undeclared_post_registrations_are_listed(request_context):
         other_posts={**bundle.other_posts, "/api/also-future": lambda _request: {}},
     )
     assert undeclared_posts(added) == ["/api/future", "/api/pins/7/future", "/api/also-future"]
+
+
+MEMBER_OPERATIONS = ("access-managed", "member-add", "member-role", "member-remove")
+
+
+class MemberScope(AccessBase):
+    """The member operations are authorized against the people store, not against the pin store they would fall to."""
+
+    def test_member_operation_gets_the_people_scope(self):
+        """authority_scope names the people lock and the state folder for each member operation, and a different
+        owner for a pin operation."""
+        guards = ps.APP.web.guards
+        pin_scope = guards.authority_scope("close")
+        for operation in MEMBER_OPERATIONS:
+            with self.subTest(operation=operation):
+                scope = guards.authority_scope(operation)
+                self.assertIs(scope.owner, ps.APP.RT.people_lock)
+                self.assertEqual(scope.namespace, str(ps.APP.C.state.resolve()))
+                self.assertIsNot(scope.owner, pin_scope.owner)
+
+    def test_pin_authority_cannot_change_members(self):
+        """An authority minted for a pin operation is refused by the member sink's check: invalid_authority."""
+        guards = ps.APP.web.guards
+        pin_authority = post_authority(guards.authority_scope("close"), ACTOR, "close", 1)
+        for operation in MEMBER_OPERATIONS:
+            with self.subTest(operation=operation):
+                with self.assertRaises(HTTPError) as error:
+                    access.require_authority(pin_authority, guards.authority_scope(operation), operation, None)
+                self.assertEqual((error.exception.code, error.exception.body["reason"]), (403, "invalid_authority"))
+
+    def test_member_authority_is_bound_to_its_operation(self):
+        """An authority for one member operation does not carry another: add cannot remove."""
+        guards = ps.APP.web.guards
+        owner = access.Principal(dict(ACTOR), "owner", "header")
+        authority = guards.authorize_post(owner, "/api/members/add")
+        scope = guards.authority_scope("member-add")
+        access.require_authority(authority, scope, "member-add", None)
+        with self.assertRaises(HTTPError):
+            access.require_authority(authority, guards.authority_scope("member-remove"), "member-remove", None)
+
+    def test_every_member_sink_checks_its_authority_first(self):
+        """Each sink refuses an authority minted for a pin operation with invalid_authority before it looks at the
+        instance or the body, and writes nothing. Without the check an unmanaged instance would answer not_managed (or
+        confirm_required) instead."""
+        from limn.web.routes import OtherPostRequest
+
+        guards = ps.APP.web.guards
+        pin_authority = post_authority(guards.authority_scope("close"), ACTOR, "close", 1)
+        principal = access.Principal(dict(ACTOR), "owner", "header")
+        sinks = ps.APP.web.routes.bundle.other_posts
+        for path in access.MEMBER_OPERATIONS:
+            with self.subTest(path=path):
+                with self.assertRaises(HTTPError) as error:
+                    sinks[path](
+                        OtherPostRequest(pin_authority, {"login": "bob@example.com", "role": "viewer"}, principal)
+                    )
+                self.assertEqual((error.exception.code, error.exception.body["reason"]), (403, "invalid_authority"))
+        self.assertFalse(ps.APP.C.people_file.exists())
+        self.assertFalse(ps.APP.C.access_file.exists())

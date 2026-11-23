@@ -11146,7 +11146,7 @@
                 }
             }
         ],
-        "./src/limn/security/people.py": [
+        "./src/limn/security/people_store.py": [
             {
                 "code": "reportExplicitAny",
                 "range": {
@@ -11254,8 +11254,8 @@
             {
                 "code": "reportExplicitAny",
                 "range": {
-                    "startColumn": 56,
-                    "endColumn": 59,
+                    "startColumn": 24,
+                    "endColumn": 27,
                     "lineCount": 1
                 }
             },

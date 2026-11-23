@@ -2,7 +2,7 @@
   "security/access.py": {
     "role-unknown": 1,
     "web-import": 1,
-    "isinstance": 17
+    "isinstance": 15
   },
   "security/audit.py": {
     "role-unknown": 1
@@ -10,8 +10,7 @@
   "security/guidance.py": {
     "role-unknown": 1
   },
-  "security/people.py": {
-    "role-unknown": 1,
+  "security/people_store.py": {
     "isinstance": 11
   }
 }

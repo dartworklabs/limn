@@ -90,7 +90,10 @@ HTTP 오류 응답을 보내지 않는다. 옵션을 생략하면 기존 무제�
 > `127.0.0.1` 에 붙고 `tailscale serve` 가 붙여 주는 신원 헤더를 믿는다. 포트에 닿는 테일넷 사람은 누구나
 > 공동 작업자이며, 좁히려면 `--members-only` 와 `limn member` 역할을 쓴다. `--auth local` 은 자기 머신의 한
 > 사람용이고, `--auth trusted-proxy` 는 인증 리버스 프록시 뒤에서 쓰며 loopback 이 아닌 주소에 `--bind` 할 수
-> 있는 유일한 방식이다. 에이전트는 API 토큰(`limn token create`)을 쓴다. 프록시 없는 공개 주소도,
+> 있는 유일한 방식이다. 에이전트는 API 토큰(`limn token create`)을 쓴다. 소유자는 인스턴스를 뷰어에서
+> **관리 모드**로 전환할 수도 있다. 그 뒤로는 `people.json` 만으로 입장이 정해지고, ssh 로 설정 파일을
+> 고치는 대신 화면에서 공저자를 들인다 — 전환은 한 번 누르는 일이고 기본값은 지금 들어오는 사람 그대로이며,
+> 쓸 수 없는 `access.json` 은 헤더로 들어온 사람을 전원 거절한다. 프록시 없는 공개 주소도,
 > `tailscale funnel` 도 안 된다. [SECURITY.md](SECURITY.md) 참고.
 
 ## 인스턴스 (원고마다 하나)
@@ -103,6 +106,7 @@ limn status paper2 · limn url paper2 · limn snippet paper2 # 자세히 · 테�
 limn update [--dry-run] [--ref vX.Y.Z]                     # uv tool 로 다시 설치, 켜진 인스턴스 재시작
 limn stop paper2 · limn start paper2 · limn remove paper2
 limn token create paper2 · limn member add paper2 <login> --role viewer   # 에이전트 토큰(한 번만 보임) · 역할
+limn member add paper2 <login> --role owner                 # 최초 소유자 — CLI 만 만든다
 limn token create paper2 --save                            # 이 머신 에이전트의 토큰 파일 ~/.config/limn/paper2.token
 ```
 

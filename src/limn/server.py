@@ -55,6 +55,7 @@ from limn.pins import (
 )
 from limn.platform.files import vendor_file as find_vendor_file
 from limn.platform.git import git as _git
+from limn.platform.tailnet import read_directory as read_tailnet_directory
 from limn.revisions import (
     RevisionJobs,
     RevisionSubsystem,
@@ -67,13 +68,15 @@ from limn.runtime.config import AccessOptions, RunConfig
 from limn.runtime.documents import DEFAULT_DOC_KEY, Doc
 from limn.runtime.resources import RuntimeResources
 from limn.runtime.startup import APP_NAME as APP_NAME, StartupRefused, app_version as app_version
-from limn.security import access
+from limn.security import access, routes as access_routes
 from limn.security.access import (
     DEFAULT_ROLE as DEFAULT_ROLE,
     file_present,
     hdr_text as hdr_text,
 )
 from limn.security.application import SecurityApplication
+from limn.security.audit import audit_action
+from limn.security.http import AccessFacts, AccessWiring, TailnetDirectoryView, tailnet_rows
 from limn.sync import PullShare, SyncContext, SyncSubsystem, SyncWatch, assemble_sync
 from limn.viewer import (
     ServedViewer,
@@ -269,6 +272,7 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
         warning=lambda: resources().people_warning,
         participants=pins.participants,
         roles=lambda: security.people_roles(),
+        managed=lambda: security.managed_access(),
         events_path=lambda: settings().events_file,
         events_lock=lambda: resources().events_lock,
         cache=lambda: resources().events_cache,
@@ -317,8 +321,63 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
         overlay=builds.revisions.overlay,
     )
     viewer = assemble_viewer(settings, lambda: resources().viewer)
+
+    def people_scope() -> access.AuthorityScope:
+        """The people store: its process lock owns it, and the state folder names it."""
+        return access.AuthorityScope(resources().people_lock, str(settings().state.resolve()))
+
+    def access_facts() -> AccessFacts:
+        """The access flag with its stamp."""
+        read = security.access_file()
+        return AccessFacts(read.managed, read.at, read.by)
+
+    def tailnet_directory(members: frozenset[str]) -> TailnetDirectoryView:
+        """The tailnet people who are not members yet, as the screen's rows; partial, and why when there are none."""
+        read = read_tailnet_directory(time.time(), resources().tailnet_cache)
+        rows = tailnet_rows(read.users, members)
+        return TailnetDirectoryView(rows, read.partial, read.reason)
+
+    def authorize_member_change(authority: object, operation: str) -> None:
+        """Refuse anything but an authority minted at the HTTP boundary for this member operation on this instance."""
+        if type(authority) is not access.PostAuthority:
+            raise HTTPError(403, "요청 권한이 올바르지 않습니다.", reason="invalid_authority")
+        access.require_authority(authority, people_scope(), operation, None)
+
+    def admitted_without_people(authority: object) -> bool:
+        """Does admission let the principal that pressed in whatever people.json says? Decided here, where the
+        principal is known and the auth mode need not be guessed (access.admitted_without_people)."""
+        if type(authority) is not access.PostAuthority:
+            raise HTTPError(403, "요청 권한이 올바르지 않습니다.", reason="invalid_authority")
+        return access.admitted_without_people(authority.principal)
+
+    def principal_admitted_without_people(principal: object) -> bool:
+        """The same question about a read's own principal, which GET /api/access needs to say before the press whether
+        turning management off would shut the reader out. A GET carries a principal and no authority, so the type is
+        checked here too, where access.Principal lives."""
+        if type(principal) is not access.Principal:
+            raise HTTPError(403, "요청 권한이 올바르지 않습니다.", reason="invalid_authority")
+        return access.admitted_without_people(principal)
+
+    access_wiring = AccessWiring(
+        settings,
+        authorize_member_change,
+        admitted_without_people,
+        principal_admitted_without_people,
+        lambda text: print(text, file=sys.stderr),
+        access_facts,
+        security.member_rows,
+        tailnet_directory,
+        lambda action, by, details: security.http_audit(audit_action(action), dict(by), dict(details)),
+        time.time,
+    )
     routes = merge_routes(
-        viewer.routes, builds.routes, revisions.routes, documents_subsystem.routes, collaboration.routes, pins.routes
+        viewer.routes,
+        builds.routes,
+        revisions.routes,
+        documents_subsystem.routes,
+        collaboration.routes,
+        pins.routes,
+        access_routes.routes(access_wiring),
     )
 
     def authority_scope(operation: str) -> access.AuthorityScope:
@@ -327,6 +386,8 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
             return builds.commands.authority_scope
         if operation == "revision-build":
             return revisions.requests.authority_scope
+        if operation in access.MEMBER_OPERATIONS.values():
+            return people_scope()  # not the pin store the fall-through below would authorize a member change against
         return pins.commands.pin_context().authority_scope
 
     web = WebApplication(
@@ -376,7 +437,11 @@ def report(app: ServerAssembly, documents: list[Doc] | None) -> None:
     pdfjs = config.pdfjs_dir or default_pdfjs_dir()
     pdfjs_found = all(find_vendor_file(pdfjs, name, (".mjs",)) for name in ("pdf.min.mjs", "pdf.worker.min.mjs"))
     access_lines = startup.access_log_lines(
-        config.access, len(app.security.current_tokens()), file_present(config.access.agent_token_file)
+        config.access,
+        len(app.security.current_tokens()),
+        file_present(config.access.agent_token_file),
+        app.security.managed_access(),
+        config.allow,
     )
     for line in startup.summary_lines(config, bool(documents), access_lines, pdfjs_found):
         print(line)

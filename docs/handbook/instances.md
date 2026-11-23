@@ -339,7 +339,7 @@ v0.2부터 에이전트는 API 토큰으로 자신을 밝히고, 사람은 멤�
 limn token create paper2 [--name ci]     # 새 에이전트 토큰을 한 번만 찍는다(stdout). 저장되는 건 해시뿐
 limn token list paper2                   # id·이름·만든 시각 — 토큰 자체는 절대 안 보인다
 limn token revoke paper2 <id 또는 이름>  # 돌고 있는 서버가 다음 요청부터 거부한다
-limn member add paper2 <로그인> [--role editor] [--name "<표시 이름>"]
+limn member add paper2 <로그인> [--role editor|owner|viewer|agent] [--name "<표시 이름>"]   # 최초 소유자도 이 줄로 만든다
 limn member list paper2                  # 로그인·역할·이름·마지막 방문
 limn member role paper2 <로그인> viewer
 limn member remove paper2 <로그인>
@@ -351,10 +351,27 @@ limn member remove paper2 <로그인>
 
 | 역할 | 할 수 있는 일 |
 | --- | --- |
-| `owner` | 전부. 소유자 전용 HTTP 엔드포인트 `POST /api/clear`(모든 핀을 보관본으로 옮기고 비운다, 본문 `{"confirm": "clear all pins"}`, 0.2.1부터)와 휴지통의 영구 삭제 `POST /api/pins/{id}/purge`(0.2.2부터)도 포함한다. 나머지 소유자 작업(멤버·토큰·설정)은 CLI와 파일 수준이다 |
+| `owner` | 전부. 소유자 전용 HTTP 엔드포인트 `POST /api/clear`(모든 핀을 보관본으로 옮기고 비운다, 본문 `{"confirm": "clear all pins"}`, 0.2.1부터)와 휴지통의 영구 삭제 `POST /api/pins/{id}/purge`(0.2.2부터), 그리고 접근 관리의 읽기 `GET /api/access` 와 쓰기 넷(아래 '뷰어에서 접근을 관리하기')도 포함한다. 토큰과 그 밖의 설정은 CLI와 파일 수준이다 |
 | `editor` | v0.1에서 사람이 하던 일 중 전체 지우기를 뺀 모두: 핀, 답글, 수정, 닫기, 확인, 다시 열기, 삭제·되살리기, 재빌드. 휴지통의 영구 삭제는 못 한다. **역할이 없는 사람은 editor다** |
 | `viewer` | 읽기만 한다. `/api/pick`과 비교 빌드(`/api/revision-build`)는 된다. 그 밖의 변경은 모두 `403`이다 |
 | `agent` | 에이전트 계약대로 claim, 답글, 검토 대기로 닫기를 한다. 확인(confirm)과 전체 지우기는 못 한다. 토큰으로 들어온 주체는 늘 이 역할이다 |
+
+### 뷰어에서 접근을 관리하기
+
+소유자는 멤버를 CLI 대신 뷰어에서 더하고 바꾸고 뺄 수 있다. 그러려면 그 인스턴스를 한 번 **관리 모드**로 전환한다. 전환 뒤에는 `people.json`이 입장의 정본이고 `--allow`·`MEMBERS_ONLY`는 무시된다([operations.md](operations.md) §상태 파일 배치).
+
+1. **소유자를 만든다 — `limn member add <이름> <로그인> --role owner`.** `--auth tailscale`에서 헤더로 들어온 사람은 모두 `editor`라, 돌고 있는 인스턴스에는 `owner`가 아무도 없을 수 있다. 이 한 줄이 그 상태를 푸는 유일한 길이다. **`limn member role`로는 안 된다** — 그 명령은 `people.json`에 줄이 없는 로그인을 `… is not in …` 으로 거절하고, 갓 만든 인스턴스나 아직 한 번도 들어온 적 없는 공저자가 바로 그 경우다. 이미 줄이 있는 사람을 올릴 때는 `limn member role <이름> <로그인> owner`가 맞다. 화면은 `owner`를 줄 수 없다(`viewer`·`editor`만 준다). 그러지 않으면 테일넷에 닿는 누구나 자기 권한을 올린다.
+2. **뷰어에서 [⋯] → `접근 관리`를 연다.** 소유자에게만 보인다. 관리 모드가 아닌 인스턴스에서는 [화면 관리로 전환]이 서 있다.
+3. **전환 화면을 읽고 누른다.** 그 화면은 `지금 들어오는 사람`과 `전환 뒤 들어오는 사람`을 나란히 두고, 체크를 바꿀 때마다 유지되는 사람 수와 **새로 들어오게 되는 사람** 수를 다시 센다. 기본 체크 상태는 "지금 들어오는 사람 그대로"이므로 그대로 누르면 들어오는 사람이 늘지 않는다. `owner`·`agent` 줄은 `고정`으로 보이고 체크를 끌 수 없다. 전환이 끝나면 서버가 더한·뺀·바꾼·유지한 로그인과 새로 들어오게 된 로그인을 그대로 보인다.
+4. **그 뒤로는 패널에서 한다.** 멤버 행의 역할(`보기`/`편집`)과 [빼기], 테일넷 후보 목록에서 [들이기], 목록에 없는 사람은 로그인을 직접 적어 [들이기]다. 모두 재시작 없이 다음 요청부터 적용되고 `audit.jsonl`에 남는다. `limn member`도 그대로 쓸 수 있다 — 같은 파일을 같은 잠금으로 고친다.
+
+관리 모드를 끄는 것도 같은 패널이다. 끄면 `--allow`·`MEMBERS_ONLY` 판정으로 돌아가므로 들어오는 사람이 바뀔 수 있고, 패널이 그것을 먼저 보인다. 설정 파일의 `--allow`·`MEMBERS_ONLY` 키는 전환이 지워 주지 않는다 — 더 쓰지 않을 값이면 설정에서 지우고 재시작한다.
+
+**소유자를 교체할 때는 새 소유자를 먼저 더한다.** 마지막 `owner`는 뷰어에서도 `limn member`에서도 빼거나 내릴 수 없다. `limn member add <이름> <새 로그인> --role owner` 뒤에 `limn member remove <이름> <옛 로그인>` 순서다. 거꾸로 하면 첫 명령이 거절된다.
+
+테일넷 후보 목록은 그 기기의 `tailscaled`가 보이는 사람만 담는 **부분 목록**이다. 장치가 없는 사용자, 테일넷 접근 규칙으로 가려진 사용자, 초대 대기 중인 사용자는 보이지 않고, 데몬이 없거나 답하지 않으면 목록 없이 까닭만 보인다. 그때도 로그인을 직접 적어 들일 수 있다. `tailscaled`는 Limn의 설치·실행 조건이 아니다.
+
+출처: [ADR-0055](../adr/0055-access-managed-from-the-viewer.md) D2·D8·D9·D10. 화면 규칙은 [viewer.md](viewer.md) §접근 관리, HTTP 계약은 [api.md](api.md) §접근 관리 (소유자 전용)에 있다.
 
 ### 서버 머신의 에이전트: 토큰 파일
 

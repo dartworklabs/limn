@@ -47,7 +47,8 @@ HTTP 전송 입장을 통과한 API 오류 응답은 `{"error": "<한국어 메�
 | 묶음 | 상태 | 코드 |
 | --- | --- | --- |
 | 요청 경계 | `400`·`403`·`413`·`415` | `transfer_encoding`·`bad_content_length`·`body_truncated`·`body_too_large`·`bad_content_type`·`bad_json`·`bad_query`·`duplicate_header`·`bad_host`·`bad_origin`·`invalid_authority` |
-| 인증·입장·역할 | `401`·`403` | `unauthenticated`·`loopback_agent_off`(루프백 에이전트를 끈 인스턴스에 헤더 없는 로컬 요청)·`headerless`·`bad_bearer`·`bad_token`·`not_member`·`not_allowed`·`viewer_only`·`owner_only`·`confirm_by_human`·`verdict_human`(에이전트가 판정 핀을 만듦) |
+| 인증·입장·역할 | `401`·`403` | `unauthenticated`·`loopback_agent_off`(루프백 에이전트를 끈 인스턴스에 헤더 없는 로컬 요청)·`headerless`·`bad_bearer`·`bad_token`·`not_member`·`access_unreadable`(`access.json` 을 못 씀)·`people_unreadable`(관리 모드에서 `people.json` 을 못 씀)·`not_allowed`·`viewer_only`·`owner_only`·`confirm_by_human`·`verdict_human`(에이전트가 판정 핀을 만듦) |
+| 멤버 관리(소유자 전용) | `400`·`409`·`500` | `bad_login`·`bad_access_request`(본문 모양)·`role_not_settable`(화면은 `viewer`·`editor` 만 줌)·`not_managed`(관리 모드가 아닌 인스턴스의 멤버 변경)·`already_member`·`not_a_member`(멤버가 아닌 사람의 역할을 바꿈)·`last_owner`(마지막 `owner` 를 빼거나 내림)·`locks_out_owner`(이 누름이 만드는 상태가 요청한 소유자를 바로 거절하게 됨)·`flag_not_written`(`500`, 전환이 `people.json` 은 썼고 `access.json` 은 못 씀). |
 | 경로 | `404` | `not_found`(없는 경로·vendor 파일), `pdf_build_gone`(`?build=` 나 `/pages/<빌드>/` 의 빌드가 없음, pick 의 옛 빌드, `POST /api/hold` 의 빌드가 없음), `pdf_missing`(`?build=` 없이 지금 빌드의 PDF 가 없음) |
 | 문서 | `400`·`404` | `bad_doc`·`doc_mismatch`·`unknown_doc`·`no_source_lines`(보기 전용 문서나 영역 핀에 줄을 보냄. 판정 핀의 편집이면 `verdict_fixed`)·`view_only_no_rebuild`·`not_rendered_in_browser`(쪽으로 보이는 문서에 원문을 물음) |
 | 원문 | `413`·`422` | `source_too_large`(본문에 `bytes`·`limit`)·`source_not_utf8`·`source_unreadable` — `GET /api/source`. `GET /api/revision-source` 는 같은 이름과 `not_a_file` 을 거절이 아니라 `200` 답의 한 쪽 `reason` 으로 준다(§변경 보기와 비교 PDF) |
@@ -118,11 +119,21 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 | 설정 | 들어오는 사람 |
 | --- | --- |
+| **관리 모드**(`access.json` 의 `managed` 가 참) | `people.json` 에 줄이 있는 로그인**만**. `--allow`·`--members-only` 는 무시된다. 명단이 비거나 파일이 없으면 아무도 아니다. `people.json` 을 쓸 수 없으면 전원 `403 people_unreadable` |
 | `--members-only` | `people.json` 에 있거나 `--allow` 에 있는 로그인. `people.json` 을 쓸 수 없는 동안은 `--allow` 에 있는 로그인만(§역할) |
 | `--allow` 만 | `--allow` 에 있는 로그인 |
 | 둘 다 없음 | 신원 방식이 확인한 모든 사람. 첫 실제 변경 POST 뒤 `role` 필드 없이 `people.json` 에 기록된다 |
 
-거부된 로그인은 `403` 이고 `people.json` 에 기록되지 않는다. 토큰과 `local` 방식의 소유자는 늘 들어온다. `*.ts.net` Host로 헤더 없이 온 요청(태그 장치 등)은 허용 목록이 없어도 `403` 이다. `--tailnet-agent` 로 이런 요청을 에이전트로 받게 해도 허용 목록이 있으면 `403` 이다. `limn member add`·`remove` 로 바꾼 명단은 재시작 없이 다음 요청부터 적용된다.
+거부된 로그인은 `403` 이고 `people.json` 에 기록되지 않는다. 토큰과 `local` 방식의 소유자는 늘 들어온다. `*.ts.net` Host로 헤더 없이 온 요청(태그 장치 등)은 허용 목록이 없어도 `403` 이다. `--tailnet-agent` 로 이런 요청을 에이전트로 받게 해도 허용 목록이 있으면 `403` 이고, 관리 모드이거나 `access.json` 을 쓸 수 없을 때도 같다(목록이 있는지 알 수 없으면 있는 것으로 본다). `limn member add`·`remove` 로 바꾼 명단은 재시작 없이 다음 요청부터 적용된다.
+
+**관리 모드와 `access.json`.** 상태 폴더의 `<state_dir>/access.json` 은 `{"version":1,"managed":<불린>,"managed_at":"<YYYY-MM-DD HH:MM:SS>","managed_by":"<로그인>"}` 모양이고, 권한 `0600` 으로 원자적으로 교체된다. 입장 판정이 읽는 것은 `managed` 뿐이고 `managed_at`·`managed_by` 는 마지막으로 전환을 누른 시각과 그 소유자로 화면이 보여 줄 내력이다. 요청마다 다시 읽으므로 전환과 멤버 변경이 재시작 없이 반영된다.
+
+- **파일이 없으면** 관리하지 않는 것이고, 판정은 위 표의 나머지 세 줄 그대로다. 판올리기만으로는 생기지 않는다. 전환은 소유자가 `POST /api/access/managed` 로 켠다(§접근 관리 (소유자 전용)). 아예 `stat` 할 수 없는 경로 — 가장 흔하게는 끊어진 심볼릭 링크 — 도 "없음"으로 읽는다. 구멍이 아니라 일부러다. 그 파일을 만들 수 있는 사람은 지울 수도 있으니, 가리키는 곳이 사라진 링크를 "못 쓰는 파일"로 읽어 잠그면 막는 사람 없이 소유자만 잠긴다. 못 쓰는 파일은 **있는** 파일이 아래 조건을 어길 때다.
+- **관리 모드에서 빈 명단은 "전원 허용"이 아니라 "아무도"다.** 명단 밖 로그인은 `403 not_member` 이고 그 안내 화면은 `--members-only` 의 것과 같다. 모르는 사람이 들어오지 못하므로 첫 변경 때의 자동 기록(`editor`)도 일어나지 않는다 — 관리 모드의 멤버는 소유자가 명시해서만 생긴다.
+- **있는데 쓸 수 없으면 닫힌다(fail closed).** 읽을 수 없거나(권한), UTF-8 JSON이 아니거나, 객체가 아니거나, `version` 이 1이 아니거나, `managed` 가 불린이 아니면, 헤더로 신원이 정해진 사람은 전원 `403 access_unreadable` 이고 stderr에 경고가 한 번 간다. "관리하지 않음"으로 보면 그 순간 `--allow` 판정으로 조용히 내려앉아 명단 밖 사람이 들어오기 때문이다. 토큰과 `local` 방식의 소유자는 이 파일을 읽지 않아 영향이 없고, 그 길로 소유자가 파일을 고치거나 지울 수 있다. 고치면 재시작 없이 다음 요청부터 적용된다.
+- **되돌리기.** 이 파일을 모르는 이전 버전으로 내려가면 그 서버는 파일을 읽지 않고 `--allow`·`--members-only` 로 돌아간다. **닫히는 쪽인 것은 `--allow` 가 있을 때뿐이다.** `--allow` 가 있으면 다시 그 목록으로 가리므로 전환 뒤에 더한 사람은 못 들어온다. `--members-only` 면 `people.json` 이 다시 입장을 정하므로 전환 뒤에 더한 사람도 그 줄로 계속 들어온다. 둘 다 없으면 신원 방식이 확인한 모든 사람에게 **다시 열린다** — 닫히는 것의 반대다. 어느 쪽이든 상태 파일을 고쳐 쓰지 않으므로 그 밖에 남는 것은 없다.
+
+출처: [ADR-0055](../adr/0055-access-managed-from-the-viewer.md) D1·D4·D5. 운영 절차는 [operations.md](operations.md) §상태 파일 배치다.
 
 ### 역할
 
@@ -135,12 +146,12 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | `editor` | `role` 이 없거나 `editor` 인 사람 | `/api/clear` 와 `/api/pins/{id}/purge` 를 뺀 전부(`403`) |
 | `owner` | `role` 이 `owner` 인 사람, `local` 방식의 루프백 소유자 | 전부 |
 
-- `GET` 은 들어온 모든 역할에 열려 있다. `viewer` 도 핀 목록, `pins.md`, PDF를 읽는다.
+- `GET` 은 `GET /api/access`(`OWNER_READS`)를 뺀 모든 경로가 들어온 모든 역할에 열려 있다. `viewer` 도 핀 목록, `pins.md`, PDF를 읽는다. `GET /api/access` 는 `owner` 역할만 읽고 다른 역할과 토큰·루프백 에이전트는 `403 owner_only` 다.
 - 알 수 없는 `role` 값을 `viewer` 로 보는 것은 일부러다. 오타 난 역할이 전권이 되지 않고 가장 좁은 권한으로 닫힌다.
 - **`people.json` 을 쓸 수 없으면 닫힌다(fail closed).** 파일은 있는데 읽을 수 없거나(권한), UTF-8 JSON이 아니거나(잘림, 빈 파일, 깨진 JSON), `{"people": [...]}` 모양이 아니면, 그동안 헤더로 들어온 사람은 명단에 있든 없든 모두 `viewer` 이고 `--members-only` 는 `people.json` 으로는 아무도 들이지 않는다. 서버는 그 파일을 다시 쓰지 않고(§사람 목록) stderr에 경고를 한 번 남긴다. 파일이 없을 때(아무도 적히지 않은 새 인스턴스)는 모두 `editor` 다. 전에 읽은 역할을 계속 쓰지 않는 것은 답이 프로세스의 이력에 따라 달라지기 때문이다(재시작하면 바뀐다). 같은 원리로 `tokens.json` 을 못 읽으면 토큰을 하나도 받지 않는다. 토큰과 `local` 방식의 소유자는 이 파일을 읽지 않으므로 그대로다. 파일을 고치면(내용이든 권한이든) 재시작 없이 다음 요청부터 원래 역할이 돌아온다.
 - 역할은 `limn member role` 로 바꾸고, 재시작 없이 다음 요청부터 적용된다. 서버가 사람 항목을 다시 쓸 때도 `role` 은 그대로 둔다.
 - 판정 핀은 `editor`·`owner` 인 사람만 만든다(§판정 핀 (`verdict`)). 역할만이 아니라 사람인지도 본다. 그래서 `role` 이 `agent` 인 사람과 토큰·헤더 없는 루프백 에이전트는 `403 verdict_human` 이고, `local` 방식의 루프백 소유자는 사람이라 만든다. 판단은 `Principal.authors_verdicts` 다.
-- 소유자만 부를 수 있는 HTTP 경로는 둘이다. `POST /api/clear`(0.2.1+, `OWNER_POSTS`)는 모든 핀을 한꺼번에 지우는 유일한 경로라서 확인 본문도 요구한다. `POST /api/pins/{id}/purge`(0.2.2+, `OWNER_POST_RE`)는 휴지통의 핀 하나를 영구 삭제한다(§엔드포인트). 나머지 소유자 동작(멤버, 토큰, 설정)은 CLI와 파일 수준이다(`limn member`, `limn token`).
+- 소유자만 부를 수 있는 변경 HTTP 경로는 여섯이다. `POST /api/clear`(0.2.1+, `OWNER_POSTS`)는 모든 핀을 한꺼번에 지우는 유일한 경로라서 확인 본문도 요구한다. `POST /api/pins/{id}/purge`(0.2.2+, `OWNER_POST_RE`)는 휴지통의 핀 하나를 영구 삭제한다(§엔드포인트). 멤버 변경은 관리 모드인 인스턴스에서 소유자가 HTTP로도 할 수 있다(`POST /api/access/managed`, `/api/members/add`·`role`·`remove`, 읽기는 `GET /api/access` — §접근 관리 (소유자 전용)). 그 넷은 `MEMBER_OPERATIONS` 로 등재돼 있고 등재가 곧 허용이다. 화면이 줄 수 있는 역할은 `viewer`·`editor` 뿐이고 마지막 `owner` 는 어느 문으로도 빠지지 않는다. 토큰과 그 밖의 설정은 그대로 CLI와 파일 수준이다(`limn token`). 출처: [ADR-0055](../adr/0055-access-managed-from-the-viewer.md) D6–D9([ADR-0002](../adr/0002-access-control.md) 의 "소유자 전용 작업은 당분간 CLI 수준" 을 멤버 관리에 대해서만 부분 대체한다).
 
 `/api/meta` 와 `/api/people` 의 `me`, 그리고 `/api/people` 의 각 항목에 `role` 필드가 덧붙는다. `people.json` 에 없는 사람(예: 옛 핀의 작성자)은 `editor` 로 나온다. `people.json` 을 쓸 수 없는 동안은 모두 `viewer` 로 나온다.
 
@@ -159,6 +170,8 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 7. 선택 대상에 묶인 변경 권한 발급·검사, 사람 기록과 기능 실행
 
 역할 검사가 본문 형식보다 앞이다. 그래서 `viewer` 가 틀린 본문으로 핀을 만들려 해도 `400` 이 아니라 `403` 을 받는다.
+
+5번은 POST의 역할 검사이고, **GET도 역할로 거절될 수 있다.** 등록된 읽기 경로 가운데 `OWNER_READS` 에 든 경로(`GET /api/access`)는 `owner` 역할만 읽고 다른 역할·토큰·루프백 에이전트는 `403 owner_only` 다. 들어온 사람이면 등록된 읽기 경로를 모두 읽는다는 규칙에 생긴 첫 예외다. 그 판단도 다른 역할 비교와 같은 자리(`security/access.py` 의 `check_read`)에 있고 그 경로의 응답이 만들어지기 전에 끝난다. 출처: [ADR-0055](../adr/0055-access-managed-from-the-viewer.md) D6.
 
 ### 헤더 없는 루프백 에이전트
 
@@ -187,7 +200,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 경로는 홈 폴더 아래의 평범한 경로면 `~/…` 로, 아니면 셸 따옴표를 친 절대 경로로 쓴다(`shell_path`).
 
-실행 정본은 [`src/limn/security/access.py`](../../src/limn/security/access.py) 의 `identify`, `came_through_proxy`, `admit`, `check_role`, `OWNER_POSTS`, `bearer_of`, `token_lookup`, `pins.md` 의 안내 줄을 만드는 [`src/limn/pins/listing/render.py`](../../src/limn/pins/listing/render.py) 의 `claim_guidance`, `TOKEN_GUIDANCE`, `token_guidance_line`, 토큰 파일 문구를 만드는 [`src/limn/security/guidance.py`](../../src/limn/security/guidance.py) 의 `UNAUTHENTICATED`, `shell_path`, `token_file_curl`, `loopback_refused_text` 다. 실행 설정과 `tokens.json`·`people.json` 캐시는 `server.py`의 `access_settings`·`access_lookups`가 `security/access.py`에 넘긴다. 토큰 파일이 있는지와 홈 폴더는 `security/access.py`의 `file_present`·`home_or_none`으로 읽어 값으로 넘긴다.
+실행 정본은 [`src/limn/security/access.py`](../../src/limn/security/access.py) 의 `identify`, `came_through_proxy`, `admit`, `check_read`, `check_role`, `OWNER_POSTS`, `OWNER_READS`, `MEMBER_OPERATIONS`, `bearer_of`, `token_lookup`, 닫힌 보안 값과 그 파서를 담은 [`src/limn/security/values.py`](../../src/limn/security/values.py), 접근 플래그 파일을 읽고 쓰는 [`src/limn/security/access_store.py`](../../src/limn/security/access_store.py), 멤버 변경과 전환의 연산 [`src/limn/security/access_service.py`](../../src/limn/security/access_service.py), 그 경로들의 요청·응답을 짓는 [`src/limn/security/http.py`](../../src/limn/security/http.py) 와 [`src/limn/security/routes.py`](../../src/limn/security/routes.py), 테일넷 후보 목록의 전송 [`src/limn/platform/tailnet.py`](../../src/limn/platform/tailnet.py), `pins.md` 의 안내 줄을 만드는 [`src/limn/pins/listing/render.py`](../../src/limn/pins/listing/render.py) 의 `claim_guidance`, `TOKEN_GUIDANCE`, `token_guidance_line`, 토큰 파일 문구를 만드는 [`src/limn/security/guidance.py`](../../src/limn/security/guidance.py) 의 `UNAUTHENTICATED`, `shell_path`, `token_file_curl`, `loopback_refused_text` 다. 실행 설정과 `tokens.json`·`people.json` 캐시는 `server.py`의 `access_settings`·`access_lookups`가 `security/access.py`에 넘긴다. 토큰 파일이 있는지와 홈 폴더는 `security/access.py`의 `file_present`·`home_or_none`으로 읽어 값으로 넘긴다.
 
 ## 문서 매개변수 (`doc=`)
 
@@ -209,7 +222,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 ## 엔드포인트
 
-경로를 성격별로 나눴다. 표의 "§" 참조는 이 문서 안의 절이다. 모든 경로는 먼저 §인증의 신원·입장 검사를 거치고, POST는 역할 검사도 거친다.
+경로를 성격별로 나눴다. 표의 "§" 참조는 이 문서 안의 절이다. 모든 경로는 먼저 §인증의 신원·입장 검사를 거친다. 그 뒤 POST는 모두 역할 검사를 거치고, GET 가운데 `OWNER_READS`에 든 경로(`GET /api/access`)도 역할로 가린다 — 그 하나를 뺀 읽기는 들어온 모든 역할에 열려 있다(§역할, §검사 순서).
 
 ### 버전·상태·사람
 
@@ -221,6 +234,34 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | `GET` | `/api/meta?ev=<seq>` | 라이트와 함께 쓸 수 있다. 요청자에게 온 새 이벤트를 `events` 로 싣는다 — §브라우저 알림 커서 |
 | `GET` | `/api/docs` | 문서 목록 `{docs:[{key,name,kind:"tex"\|"pdf"\|"figure"\|"markdown",view_only,path,main,stale_build,src_mtime,building,build:{state,phase},build_seq,last_state,pages_build,n_pages,n_open,verdicts?,verdicts_error?}], default, multi, other_open}`. 핀은 읽기만 한다(sync 쓰기 없음). `other_open` 은 지금 설정에 없는 문서 키의 열린 핀 수다. `view_only` 는 그 문서의 핀이 쪽·영역뿐인가, 곧 줄 핀을 받지 못하는가를 나타내는 문서의 능력이다. 보기 전용 PDF에서만 `true` 이고, 그림 문서(§그림 요소 지도 (`limn-figure-map/1`))는 줄 핀을 받으므로 `false` 다. 그림 문서의 pick 이 줄을 주지 못해 돌려주는 영역 답의 `view_only: true` 는 그 답이 영역뿐이고 코드 줄이 없다는 뜻이며, 문서의 능력이 아니다(§그림 문서의 pick·핀). `path` 는 `--manuscript` 기준 메인 파일 경로이고 `main` 은 그 파일 이름이다. 그림 문서에서는 둘 다 지도 파일(`.limnmap.json`)을 가리킨다. `path` 는 서버가 기동할 때 링크를 풀어 정한 값이다. `pins.md` 머리말의 문서 경로와 보기 전용 PDF의 pick 응답 `pdf` 도 같은 값을 쓴다. 기동 뒤 그 파일이나 위 폴더를 다른 곳을 가리키는 링크로 바꿔도 재시작할 때까지 바뀌지 않는다. 항목 끝의 `verdicts`(`{page, choices:[{key,label,confirm}]}`)나 `verdicts_error`(`unreadable`·`too_large`·`invalid`)는 그 문서 옆에 판정 낱말 파일이 있을 때만 붙는다(§판정 낱말 파일 (`limn-verdicts/1`)) |
 | `GET` | `/api/people` | @태그 후보 `{people:[{login,name,pic?,last_seen?,role}], me}` — §@태그·사람·이벤트. `role` 과 `me.role` 은 §인증. 쓰기 없음 |
+
+### 접근 관리 (소유자 전용)
+
+소유자는 이 경로 다섯으로 이 인스턴스에 들어올 사람을 보고 바꾼다. 다섯 모두 `owner` 역할만 부를 수 있다. 읽기 하나는 `OWNER_READS` 에 들어 있어 다른 역할·토큰·루프백 에이전트에게 `403 owner_only` 이고(§역할), POST 넷은 작업 표 `MEMBER_OPERATIONS` 에 등재돼 있어 작업 이름을 얻고(등재가 없으면 어떤 경로든 `404 not_found` 다) `OWNER_POSTS` 에 들어 있어 역할이 모자라면 `403 owner_only` 다. **POST 넷에서 역할이 `viewer` 인 사람만은 `403 viewer_only` 다** — 모든 변경을 막는 `viewer` 검사가 소유자 검사보다 먼저 돌기 때문이다. 멤버를 바꾸는 POST **셋**(`/api/members/add`·`/role`·`/remove`)은 관리 모드를 요구하고, 관리 모드가 아닌 인스턴스에서는 `409 not_managed` 다. 그 판정은 `people.json` 트랜잭션 **안에서** 플래그를 읽어 내리므로, 앞단 검사를 지나온 뒤 동시에 일어난 전환으로 플래그를 잃은 요청도 쓰이지 않고 거절된다. **전환(`/api/access/managed`)은 그 요구를 받지 않는다** — 관리 모드를 켜는 동작이 그 상태를 요구하면 아무도 켤 수 없기 때문이다. 이 다섯 가운데 관리 모드가 아닌 인스턴스에서 받는 쓰기는 전환 하나다(소유자 전용 쓰기 전부가 아니다 — `POST /api/clear` 와 `/api/pins/{id}/purge` 도 소유자 전용이고 관리 모드와 무관하게 돈다).
+
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| `GET` | `/api/access` | 이 인스턴스의 접근 상태. `{managed, managed_at?, managed_by?, unmanaged_admits_everyone, args:{allow:[…], members_only}, members:[{login,name,role,last_seen?}], transition?, off_preview?, tailnet:{users:[{login,name,pic?}], partial, reason?}}`. `managed_at`·`managed_by` 는 `access.json` 이 적어 둔 때만 붙는다. `unmanaged_admits_everyone` 은 관리를 끄면 신원 방식이 확인한 모든 사람이 들어오는가(`--allow` 도 `--members-only` 도 없음)다. `args` 는 그 실행이 받은 인자이고, 관리 모드에서는 무시되는 값이다(§입장). `transition` 은 **관리 모드가 아닐 때만** 붙고 전환 화면의 내용이다 — `{admitted_today:[로그인], settable:[멤버 행], fixed:[멤버 행 + admitted_today]}`. `settable` 은 소유자가 켜고 끌 수 있는 줄이다 — `viewer`·`editor` 줄과, **지금 들어오는데 `people.json` 에 줄이 없는 로그인**(`--allow` 만 아는 공저자) 하나씩이고 그 역할은 지금 `person_role` 이 그들에게 주는 값(`editor`)이다. 그 줄은 아직 파일에 없고 전환이 만든다. `fixed` 는 전환이 손대지 않는 `owner`·`agent` 줄이고 그 줄의 `admitted_today` 는 지금 입장이 그 로그인을 들이는가다. **`admitted_today` 의 모든 로그인은 `settable` 이나 `fixed` 에 있다** — 그래서 기본 체크 상태(지금 들어오는 사람 그대로)가 아무의 입장도 빼앗지 않는다. `off_preview` 는 **관리 모드일 때만** 붙고 관리를 끄면 무엇이 달라지는지다 — `{admitted_now:[로그인], admitted_after:[로그인], after_everyone, newly_admitted:[로그인], no_longer_admitted:[로그인], locks_out_requester}`. `admitted_now` 는 멤버 목록이 들이는 사람, `admitted_after` 는 끈 뒤 그 실행의 `--allow`·`--members-only` 가 들이는 사람이다. `after_everyone` 이 참이면 끈 뒤는 신원 헤더가 확인한 **모두**라 목록으로 적을 수 없어 `admitted_after` 가 비는데, 그 빈 목록을 "아무도"로 읽어서는 안 된다(그때 `newly_admitted` 와 `no_longer_admitted` 도 빈다). `locks_out_requester` 는 **지금 읽는 소유자가 끈 뒤 못 들어오게 되는가**이고, 그 누름을 거절하는 규칙(`409 locks_out_owner`)과 같은 판단이라 화면이 누르기 전에 말한다. `tailnet` 은 이 서버가 보이는 테일넷 사람 가운데 아직 멤버가 아닌 사람들이다(§테일넷 후보 목록). `partial` 은 늘 `true` 이고, 목록을 얻지 못했으면 `users` 가 비고 `reason` 이 까닭을 적는다. `access.json` 이나 `people.json` 을 쓸 수 없으면 `403 access_unreadable`·`people_unreadable` 이다. 쓰기 없음 |
+| `POST` | `/api/access/managed` | 전환. 본문 `{"managed": <불린>, "members": [{"login","role"}, …], "confirm": "manage access from the viewer"}`. 확인 문구가 없으면 `400 confirm_required` 다. `members` 는 **`viewer`·`editor` 줄의 목표 상태**다 — 목록에 없는 `viewer`·`editor` 줄은 빠지고, 줄이 없는 로그인은 생기고, 역할이 다른 줄은 바뀐다. `owner`·`agent` 줄은 본문이 말하지 않아도 보존되고, 본문이 그 줄을 이름으로 말하면 `400 role_not_settable` 로 거절한다(빠뜨려서 소유자가 지워지는 길을 없앤다). **켤 때는 `members` 가 필수다** — 없이 켜면 `400 bad_access_request` 다. 끌 때 생략하면 "지금 줄 그대로"이고, 화면의 끄기는 줄을 하나도 바꾸지 않으므로 `members` 를 보내지 않는다. 답은 `{ok, managed, added, removed, changed, kept, newly_admitted}` 이고 각 칸은 로그인 목록이다. `newly_admitted` 는 이 누름이 **새로 들이게 된** 로그인이라 비어 있지 않으면 입장이 넓어진 것이다. `people.json` 을 먼저 쓰고 `access.json` 을 마지막에 쓰며, 같은 목표 상태를 다시 보내면 아무것도 바뀌지 않는다(멱등). 거절: `400 confirm_required`·`bad_access_request`(본문 모양, `members` 없이 켜는 것을 포함)·`bad_login`·`role_not_settable`, `409 locks_out_owner`(이 누름이 만드는 상태가 요청한 소유자를 바로 거절하게 된다 — 목록에 없다고 늘 거절하는 것이 아니다. `owner`·`agent` 줄은 본문이 말하지 않아도 지켜지고, 끈 뒤의 `--allow`·`--members-only` 가 그 소유자를 들이면 그 줄이 빠져도 거절하지 않는다)·`last_owner`, `403 people_unreadable`, `500 flag_not_written`. 마지막은 `people.json` 은 썼고 `access.json` 은 못 쓴 경우다 — 멤버 목록은 그대로 서고 접근 관리는 바뀌지 않았으니, 같은 목록으로 다시 눌러도 안전하다. 아무것도 쓰지 못한 실패(`500 internal`)와 코드를 가르는 까닭은 이것이 무동작이 아니기 때문이다. `--members-only` 인 인스턴스는 관리 모드가 아니어도 `people.json` 으로 입장을 정하므로, 이 누름이 쓴 줄이 이미 그 사람을 들인다 |
+| `POST` | `/api/members/add` | `{login, role, name?}` → `{ok, member}`. `role` 은 `viewer`·`editor` 만 받는다(`400 role_not_settable`). 이미 멤버면 `409 already_member` |
+| `POST` | `/api/members/role` | `{login, role}` → `{ok, member}`. 멤버가 아니면 `409 not_a_member`, 마지막 `owner` 를 내리면 `409 last_owner` 다 |
+| `POST` | `/api/members/remove` | `{login}` → `{ok, member}`. `member` 는 빠진 줄이고, 멤버가 아니었으면 `null` 에 `200` 이다(원하는 끝 상태가 이미 참이다). 마지막 `owner` 면 `409 last_owner` |
+
+- **역할은 `viewer`·`editor` 만 준다.** `owner` 와 `agent` 는 HTTP 문으로 줄 수 없다(`400 role_not_settable`). 헤더로 들어온 사람에게 `owner` 줄을 만드는 길은 `limn member add <인스턴스> <로그인> --role owner` 하나이고, CLI는 네 역할을 그대로 받는다. 화면이 소유자를 만들 수 있으면 테일넷에 닿는 누구나 자기 권한을 올린다. `--auth local` 인스턴스에서는 루프백 소유자의 첫 실제 변경이 자기 줄을 `role: owner` 로 기록하지만(§사람 목록), 그 주체는 이미 소유자 권한을 가진 그 기기의 사용자라 아무의 권한도 올리지 않고 헤더로 온 요청은 그 길에 닿지 못한다. 관리 모드에서는 기록기가 줄을 아예 만들지 않으므로 그 길도 없다. 출처: [ADR-0055](../adr/0055-access-managed-from-the-viewer.md) D9.
+- **마지막 `owner` 는 어느 문으로도 빼거나 내릴 수 없다.** HTTP는 `409 last_owner`, `limn member remove`·`limn member role` 은 한 줄 오류다. 소유자를 교체할 때는 새 소유자를 먼저 더한다([operations.md](operations.md) §상태 파일 배치). 출처: [ADR-0055](../adr/0055-access-managed-from-the-viewer.md) D8.
+- 멤버 줄의 변경은 `audit.jsonl` 에 기존 행동 이름(`member_added`·`member_role`·`member_removed`)으로 남고, 전환은 그 전환이 한 줄 변경마다 한 줄씩 남긴다. **플래그 자체는 행동 이름이 따로 있다 — `access_managed`**, `details` 는 `{"managed": <쓴 값>, "by": "<소유자 로그인>"}` 이고 `via` 는 `http` 다. 성공한 누름마다 한 줄이고, 플래그를 쓴 **뒤에** 적으므로 같은 누름의 `member_*` 줄 다음에 오며, 플래그 쓰기가 실패하면(`500 flag_not_written`) 적히지 않는다. 줄을 하나도 바꾸지 않는 누름도 이 한 줄은 남는다(§감사 기록 (`audit.jsonl`)).
+- 멤버 쓰기는 `people.json` 의 잠금(`.people.lock`) 아래에서만 일어나고 `limn member` 와 같은 연산을 쓴다. 발급된 작업 권한의 검사는 HTTP 경계에서만 하고(CLI는 OS 파일 권한으로 지킨다), 작업마다 people 저장소를 효과 범위로 받는다. 출처: [ADR-0055](../adr/0055-access-managed-from-the-viewer.md) D7.
+
+#### 테일넷 후보 목록
+
+`GET /api/access` 의 `tailnet` 은 그 기기의 `tailscaled` 를 LocalAPI로 읽어 만든 **부분 목록**이다. 응답의 사용자 맵은 그 노드의 네트워크 지도에 보이는 상대의 소유자만 담고 그 지도는 테일넷의 접근 규칙으로 걸러지므로, 장치가 없는 사용자·규칙으로 가려진 사용자·초대 대기 중인 사용자는 보이지 않는다. 테일넷 역할이나 계정 상태도 없다. 그래서 `partial` 은 늘 `true` 이고 화면이 그렇다고 적는다. 목록에 없는 사람은 로그인을 직접 적어 들인다.
+
+- 읽기만 하고, 소유자 전용 GET에서만 부른다. 타임아웃과 응답 본문 상한을 두며 답을 몇 초 기억해 연타를 막고, 백그라운드 스레드를 만들지 않는다. 자격증명을 보관하지 않고 바깥 네트워크로 나가지 않는다.
+- **목록을 얻지 못하는 것은 정상 상태다.** 데몬이 없거나, 아무도 듣지 않거나, 시간이 초과되거나, 거절하거나, 답이 JSON이 아니거나 너무 길거나 스스로 적은 `Content-Length` 보다 짧게 끊기거나, 노드가 돌고 있지 않으면 `users` 가 비고 `reason` 이 그 까닭을 코드로 적는다(`tailscaled_not_found`·`tailscaled_unreachable`·`tailscaled_timeout`·`tailscaled_refused`·`tailscaled_bad_response`·`tailscaled_too_large`·`tailscaled_truncated`·`tailscaled_not_running`). 예외를 올리지 않고 요청을 멈추지 않는다. `tailscaled` 는 설치·실행 조건이 아니다.
+- **1초 예산은 멈춤의 상한이고 벽시계의 상한이 아니다.** 소켓 시간초과는 한 번의 읽기에 걸리므로, 한 줄씩 끊어서 오는 머리글은 각 간격이 그 안이면 예산을 넘겨 도착할 수 있다. 그래서 답을 손에 쥔 순간에도 예산을 보고, 넘겼으면 그 답이 무엇이든 `tailscaled_timeout` 이다. 벽시계 상한에는 스레드나 시그널이 필요해 두지 않는다.
+- 투영은 로그인·표시 이름·사진(`https:` 만)만 꺼내고, 이미 멤버인 사람과 사람이 가질 수 없는 로그인은 뺀다. `--auth local`·`trusted-proxy` 인스턴스에서도 같은 목록을 보인다(그 기기가 테일넷에 있으면 보이고, 없으면 "목록 없음"이다).
+
+출처: [ADR-0055](../adr/0055-access-managed-from-the-viewer.md) D10.
 
 ### 화면·PDF·정적 파일
 
@@ -756,7 +797,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 
 @태그는 뷰어 안에서만 사람을 부른다. GitHub, Telegram, 메일 같은 바깥 알림은 보내지 않는다. 대신 나중에 붙일 수 있게 `events.jsonl` 에 적어 둔다.
 
-공통 사실은 세 모듈이 맡는다. [`src/limn/security/people.py`](../../src/limn/security/people.py) 가 `people.json` 의 항목 검사·저장 형식·기록(`record_person`)과 @태그 후보(`known_people`·`candidates`)를, [`src/limn/pins/mentions.py`](../../src/limn/pins/mentions.py) 가 `@이름` 풀기(`resolve_mentions`·`mention_hits`), 지금 차례(`thread_round`), `addressed`·`fyi`, 메모 태그와 재알림 간격(`tag_note`·`note_mention_targets`)을, [`src/limn/collaboration/events.py`](../../src/limn/collaboration/events.py) 가 이벤트 한 건과 받는 사람(`make_event`), 폴링이 고르는 이벤트(`events_since`), `events.jsonl` 쓰기·읽기(`EventLog`)를 맡는다. [`collaboration/`](../../src/limn/collaboration/directory.py)은 실행별 사람 파일·멘션 알림·이벤트 폴링과 `GET /api/people`의 역할·핀 스냅숏·응답을 연결한다. 파일 위치·잠금·시계는 `server.py` 가 넘긴다.
+공통 사실은 세 모듈이 맡는다. [`src/limn/security/people_store.py`](../../src/limn/security/people_store.py) 가 `people.json` 의 항목 검사·저장 형식·기록(`record_person`)과 @태그 후보(`known_people`·`candidates`)를, [`src/limn/pins/mentions.py`](../../src/limn/pins/mentions.py) 가 `@이름` 풀기(`resolve_mentions`·`mention_hits`), 지금 차례(`thread_round`), `addressed`·`fyi`, 메모 태그와 재알림 간격(`tag_note`·`note_mention_targets`)을, [`src/limn/collaboration/events.py`](../../src/limn/collaboration/events.py) 가 이벤트 한 건과 받는 사람(`make_event`), 폴링이 고르는 이벤트(`events_since`), `events.jsonl` 쓰기·읽기(`EventLog`)를 맡는다. [`collaboration/`](../../src/limn/collaboration/directory.py)은 실행별 사람 파일·멘션 알림·이벤트 폴링과 `GET /api/people`의 역할·핀 스냅숏·응답을 연결한다. 파일 위치·잠금·시계는 `server.py` 가 넘긴다.
 
 ### 사람 목록
 
@@ -766,6 +807,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 - 선택 필드 `role` 은 `owner`·`editor`·`viewer`·`agent` 중 하나이고, 없으면 `editor` 다. `limn member` 로 정하며, 서버가 항목을 다시 써도 그대로 둔다(§인증). 처음 온 사람은 `role` 없이 적힌다. `local` 방식의 소유자만 `owner` 로 적힌다.
 - 같은 이름·사진이면 실제 변경 때도 시각 기록을 10분에 한 번으로 묶는다. `first_seen`·`last_seen`은 방문 시각이 아니라 기록된 실제 변경 시각이다. 이름·사진도 읽기만으로 갱신되지 않는다.
 - 파일이 있는데 쓸 수 없으면(§역할) 사람을 기록하지 않고 파일도 건드리지 않는다. `limn member` 도 같은 판단으로 그런 파일을 거부한다. 그동안 @태그 후보는 핀에 나온 사람뿐이다.
+- 관리 모드인 인스턴스에서는 이 파일이 **입장 명단**이기도 하다(§입장). 그래서 그런 인스턴스에서는 기록기가 줄을 아예 만들지 않는다 — 명단 밖 사람은 들어오지 못해 첫 변경을 할 수 없고, 들어온 사람의 요청으로도(그사이 소유자가 그 줄을 빼 버린, 아직 끝나지 않은 요청까지) 줄이 새로 생기지 않으며, 쓸 수 없는 `access.json` 과 `--auth local` 의 루프백 소유자도 마찬가지다. 있는 줄의 이름·사진·`last_seen` 은 그대로 갱신된다. 줄은 소유자가 `limn member add` 나 `POST /api/members/add`·`/api/access/managed` 로 명시해서만 생긴다. "줄을 만들지 않았다"는 결과도 위의 10분 묶음에 들어가므로(그러지 않으면 `--auth local` 소유자의 모든 변경이 아무것도 쓰지 않고 사람 잠금을 잡는다), 관리 모드를 끈 직후에는 그 사람의 줄이 바로 다음 변경이 아니라 묶음이 풀린 뒤의 변경에서 생길 수 있다. 멤버가 곧 입장이라 "기록은 남기고 입장만 끈다"는 필드는 두지 않는다 — 빠진 사람의 기록은 `audit.jsonl` 의 `member_removed` 줄과 핀에 남은 작성자로 남는다. 출처: [ADR-0055](../adr/0055-access-managed-from-the-viewer.md) D3·D4.
 - `GET /api/people` 은 이 파일과 핀의 작성자·행위자·스레드 글쓴이를 합쳐 준다.
 
 저장된 기록도 핀 참여 이력도 없는 새 독자는 열기만 해서는 `/api/people`·`limn member list`·멘션 후보에 나타나지 않는다. 그 사람의 이름이나 전체 login을 `@`로 적어도 알림 대상으로 풀리지 않는다. 편집자는 첫 실제 변경 뒤 등록되고, 변경할 수 없는 `viewer`는 소유자가 `limn member add`로 명시 등록해야 한다. 기존 사람 행과 역할은 유지한다.
@@ -844,9 +886,10 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 | `cleared` | 소유자가 `/api/clear` 로 모든 핀을 지움 | `http` | 요청한 사람 | `{n, archive}` |
 | `purged` | 소유자가 휴지통에서 영구 삭제함 | `http` | 요청한 사람 | `{pin}` |
 | `token_created` · `token_revoked` | `limn token create` · `revoke` | `cli` | 명령을 돌린 OS 계정 | `{id, name}`. 토큰 원문과 해시는 적지 않는다 |
-| `member_added` | `limn member add` | `cli` | OS 계정 | `{login, role}` |
-| `member_role` | `limn member role` 이 실제 역할을 바꿈 | `cli` | OS 계정 | `{login, role, previous_role}`. 같은 역할로 다시 정하면 적지 않는다 |
-| `member_removed` | `limn member remove` | `cli` | OS 계정 | `{login, previous_role}` |
+| `member_added` | `limn member add`, 또는 소유자가 화면에서 더함(`/api/members/add`·전환) | `cli`·`http` | OS 계정 또는 요청한 소유자 | `{login, role}` |
+| `member_role` | `limn member role` 또는 소유자의 화면이 실제 역할을 바꿈(`/api/members/role`·전환) | `cli`·`http` | OS 계정 또는 요청한 소유자 | `{login, role, previous_role}`. 같은 역할로 다시 정하면 적지 않는다 |
+| `member_removed` | `limn member remove`, 또는 소유자가 화면에서 뺌(`/api/members/remove`·전환) | `cli`·`http` | OS 계정 또는 요청한 소유자 | `{login, previous_role}` |
+| `access_managed` | 소유자가 `/api/access/managed` 로 접근 관리를 켜거나 끔 | `http` | 요청한 사람 | `{managed, by}` — 쓴 플래그 값과 그 소유자의 로그인. 플래그를 쓴 뒤에 적으므로 같은 누름의 `member_*` 줄 다음이고, 플래그 쓰기가 실패하면 없다 |
 
 - `at` 은 서버 현지 시각 문자열(`now_str` 모양), `ts` 는 같은 순간의 epoch 초다. `by` 는 `{login, name}` 만 싣는다. `cli` 의 `by` 는 `$USER` 가 아니라 프로세스 uid 의 계정 이름이다.
 - 일이 끝난 뒤에 적는다. 거부된 요청(`400`·`403`·`404`), 없는 토큰·멤버를 고른 명령은 적지 않는다.

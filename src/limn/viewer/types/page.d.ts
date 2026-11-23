@@ -6,6 +6,7 @@
 // body's last child, so each is there before any module runs, and none is removed; a module that draws one
 // anew gives it the same id and tag. Nothing checks this at run time: test_viewer_page_elements does.
 interface PageElements {
+  'access': HTMLDialogElement;
   'all-docs': HTMLButtonElement;
   'banner': HTMLDivElement;
   'bar1': HTMLDivElement;
@@ -88,6 +89,7 @@ interface PageElements {
   'list': HTMLDivElement;
   'list-h': HTMLSpanElement;
   'list-order': HTMLDivElement;
+  'm-access-host': HTMLDivElement;
   'm-actual': HTMLButtonElement;
   'm-download': HTMLButtonElement;
   'm-lang': HTMLDivElement;
@@ -267,7 +269,12 @@ interface PageElements {
 // Elements viewer markup makes at run time, present only in some states, by id, with the class every
 // module that makes one gives it.
 interface LiveElements {
+  'acc-login': HTMLInputElement;
+  'access-body': HTMLDivElement;
+  'access-h': HTMLHeadingElement;
   'c-verdict-why': HTMLSpanElement;
+  'm-access': HTMLButtonElement;
+  'm-access-n': HTMLSpanElement;
   'md': HTMLElement;
   'pv-panel': HTMLDivElement;
   'pv-panel-at': HTMLDivElement;

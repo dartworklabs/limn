@@ -9,7 +9,7 @@
     "isinstance": 1
   },
   "runtime/resources.py": {
-    "role-imports": 2
+    "role-imports": 1
   },
   "runtime/startup.py": {
     "role-imports": 1,
