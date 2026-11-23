@@ -31,12 +31,14 @@ again.
   an editor on a first change, so a member exists only because the owner said so. Without the file nothing changes:
   admission is what it was, so an upgrade alone never widens who gets in. The switch is a press on the panel, which
   first shows who gets in today beside who would get in after, counts the people it would **newly** admit, and
-  defaults to admitting exactly who gets in today. On an instance with `--allow` or `--members-only` that default
-  press is a no-op. An instance with neither has no such default: managed access cannot say "everyone a header
-  identifies", which is what that instance admits today, so the screen says so in the comparison and the press
-  narrows admission to the rows. On an `--allow` instance the switch also keeps the `owner` and `agent` rows the body
-  does not name, so an owner outside the allowlist is admitted after — the count names them. Turning it off is the
-  same path and shows the same comparison. An `access.json` that exists but cannot be used (unreadable, not UTF-8 JSON, not an
+  defaults to admitting exactly who gets in today, a co-author only `--allow` names included: the screen offers that
+  login as a row of its own, so the default press creates it instead of taking their access away. Under
+  `--members-only` that press is an exact no-op. Under `--allow` alone it is one too, with one exception: the switch
+  keeps the `owner` and `agent` rows whatever the body says, so a login that holds one of those rows and is not in
+  the allowlist is admitted after, and the screen counts it among the people the press newly admits. An instance run
+  with neither flag has no such default — it admits everyone a header identifies, which managed access cannot
+  express — so the comparison names its right column as everyone a header identifies, and the press narrows
+  admission to the rows. Turning it off is the same path and shows the same comparison. An `access.json` that exists but cannot be used (unreadable, not UTF-8 JSON, not an
   object, a `version` other than 1, a `managed` that is not a boolean) refuses every header-identified person
   (`403 access_unreadable`) and warns once on stderr; tokens and the `--auth local` owner are unaffected, so the owner
   can repair or delete it.
