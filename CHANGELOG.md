@@ -16,7 +16,7 @@ the switch cannot get in — the closed side.
   the line goes on to say that a write through this request is recorded as that person and that an agent should not
   write but ask for a token unless that person is the user it works for. A tailnet identity is the account the machine
   is signed in with, not whoever is at it, so on a shared machine an agent without a token used to be recorded as the
-  machine's account holder with no way to tell. The file on disk names nobody: the same place holds
+  machine's account holder with nothing in `pins.md` to say so. The file on disk names nobody: the same place holds
   `요청자: 없음(디스크 사본) — …` and says how to check with `curl`, and no request's identity can reach that file
   ([ADR-0056](docs/adr/0056-pins-md-requester-line.md)).
 - **An owner admits co-authors from the viewer instead of editing a config file over ssh.** [⋯] → `접근 관리` opens a

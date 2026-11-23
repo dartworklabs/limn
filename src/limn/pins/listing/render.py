@@ -387,6 +387,12 @@ def one_line(text: str) -> str:
     return " ".join(text.splitlines())
 
 
+def literal_text(text: str) -> str:
+    """text as Markdown shows it literally next to a code span: every backslash and backtick backslash-escaped, so a
+    display name can neither open nor close the code span that follows it (CommonMark §backslash escapes)."""
+    return text.replace("\\", "\\\\").replace("`", "\\`")
+
+
 def inline_code(text: str) -> str:
     """text as one Markdown code span that shows it verbatim: fenced by one backtick more than its longest backtick run,
     with a space inside the fence when text starts or ends with a backtick (CommonMark strips one such space)."""
@@ -400,11 +406,12 @@ def requester_line(requester: Requester | None, loopback_base: str) -> str:
     """pins.md's requester line. None (the file on disk) gives REQUESTER_DISK, naming no one and pointing at
     loopback_base's GET /pins.md; a requester gives its name, login (in a code span), role and identity source, then
     REQUESTER_PERSON_TAIL for a person's identity - stop unless that person is the user you work for - or
-    REQUESTER_AGENT_TAIL. The name and login are made one line first, so the line is always one line of the text."""
+    REQUESTER_AGENT_TAIL. The name and login are made one line first, so the line is always one line of the text,
+    and the name's backslashes and backticks are escaped, so Markdown sees the login, and only the login, as its code."""
     if requester is None:
         return REQUESTER_DISK % loopback_base
     return "요청자: %s(%s) · 역할 %s · 신원 출처 %s%s" % (
-        md_cell(one_line(requester.name)),
+        md_cell(literal_text(one_line(requester.name))),
         inline_code(one_line(requester.login)),
         requester.role,
         REQUESTER_SOURCES[requester.source],

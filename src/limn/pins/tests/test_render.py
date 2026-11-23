@@ -234,6 +234,31 @@ class RequesterLine(unittest.TestCase):
         (line,) = requester_lines(pins_md_text(page([], requester=who)))
         self.assertTrue(line.startswith("요청자: A\\|B C D(``a`b``) · 역할 editor"), line)
 
+    def test_markdown_sees_exactly_the_login_as_code(self):
+        """Parsed as Markdown (the vendored markdown-it), the line holds one code span and it is the login, whatever
+        backticks or backslashes the display name or the login carry: a name cannot open or close the login's span."""
+        bundle = Path(render.__file__).resolve().parents[2] / "vendor" / "markdown-it" / "markdown-it.esm.min.mjs"
+        cases = [
+            ("Mina `", "mina@example.com"),
+            ("a\\`b", "mina@example.com"),
+            ("``x", "mina@example.com"),
+            ("back\\", "mina@example.com"),
+            ("Alice Kim", "a`b"),
+            ("`", "``c``"),
+        ]
+        lines = [render.requester_line(Requester(n, lg, "editor", "tailnet-header"), "") for n, lg in cases]
+        out = run_node(
+            "const {pathToFileURL}=require('node:url');"
+            "(async()=>{const MarkdownIt=(await import(pathToFileURL(%s).href)).default;"
+            % json.dumps(str(bundle))
+            + "const md=MarkdownIt({html:false});"
+            + "console.log(JSON.stringify(%s.map(l=>md.parseInline(l,{})[0].children" % json.dumps(lines)
+            + ".filter(t=>t.type==='code_inline').map(t=>t.content))));})();"
+        )
+        if out is None:
+            self.skipTest("node not available")
+        self.assertEqual(json.loads(out), [[lg, "limn token create <인스턴스>"] for _, lg in cases])
+
     def test_requester_of_names_an_actor_without_a_name_by_its_login(self):
         """requester_of takes the principal's actor: its name, else its login; a missing login is empty, never an error."""
         self.assertEqual(
