@@ -180,7 +180,7 @@ REQUESTER_DISK = (
 
 **Files:**
 - Modify: `docs/handbook/api.md`, `docs/handbook/domain.md`, `skill/SKILL.md`, `skill/SKILL.ko.md`, `docs/adr/index.md`
-- Create: `docs/adr/NNNN-pins-md-requester-line.md` (`NNNN` = Task 0 Step 4)
+- Create: `docs/adr/NNNN-pins-md-requester-line.md` (`NNNN` = 0056, Task 0 Step 4에서 확인)
 - Modify (조건부): `CHANGELOG.md`
 
 - [ ] **Step 1: api.md.**
