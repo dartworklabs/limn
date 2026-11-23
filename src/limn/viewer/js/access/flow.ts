@@ -16,6 +16,7 @@ import {
   pickedRole,
   setAccess,
   setNote,
+  setOffOpen,
   setResult,
   setStale,
   setTransitionOpen,
@@ -95,6 +96,7 @@ async function loadAccess() {
 function openAccess() {
   if (!ACCESS) return;
   setTransitionOpen(false);
+  setOffOpen(false);
   setNote('');
   setResult(null);
   redraw();
@@ -180,6 +182,37 @@ async function applyManaged() {
   setTransitionOpen(false);
   if (!(await loadAccess())) afterWriteUnread(what);
 }
+/** Sends the press that turns management off: the same endpoint, with the confirmation phrase and no member list -
+ * turning off changes no row, so the viewer and editor rows are left as they are (security/http.py _targets). What
+ * the screen reports afterwards is the server's own count, as the switch's is. */
+async function applyOff() {
+  const view = ACCESS,
+    preview = view && view.off_preview;
+  if (!preview) return;
+  const what = translate('접근 관리 끄기');
+  // what the server will count as newly admitted; with no list to go back to ("everyone") it counts nobody
+  const previewed = preview.after_everyone ? [] : [...preview.newly_admitted];
+  setNote('');
+  setResult(null);
+  try {
+    const answer = await api('POST /api/access/managed', {
+      body: { managed: false, confirm: CONFIRM_MANAGED },
+      what,
+      silent: true,
+      expect: [400, 409] as const,
+    });
+    if (isRefusal(answer.data)) {
+      refused(what, answer.data);
+      return;
+    }
+    setResult({ done: answer.data, previewed });
+  } catch (error) {
+    failed(what, error);
+    return;
+  }
+  setOffOpen(false);
+  if (!(await loadAccess())) afterWriteUnread(what);
+}
 /** Every action of the access screen, by its data-act; answers whether it was one of them. */
 function accessAction(act: string | undefined, control: HTMLElement) {
   const login = control.dataset.login || '',
@@ -229,6 +262,17 @@ function accessAction(act: string | undefined, control: HTMLElement) {
       return true;
     case 'access-manage-apply':
       void applyManaged();
+      return true;
+    case 'access-off':
+      setOffOpen(true);
+      redraw();
+      return true;
+    case 'access-off-cancel':
+      setOffOpen(false);
+      redraw();
+      return true;
+    case 'access-off-apply':
+      void applyOff();
       return true;
     case undefined: // the control matched [data-act], so the attribute is there
     default:

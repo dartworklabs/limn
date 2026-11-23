@@ -45,12 +45,23 @@ class AccessHttp(AccessBase):
         return d
 
     def test_get_access_lists_members_and_args(self):
-        """A managed instance answers the flag with its stamp, the run's arguments and the member rows, in this order."""
+        """A managed instance answers the flag with its stamp, the run's arguments, the member rows and what turning
+        management off would do, in this order."""
         self.manage()
         set_config(allow=frozenset({"alice@example.com"}))
         d = self.get_access()
         self.assertEqual(
-            list(d), ["managed", "managed_at", "managed_by", "unmanaged_admits_everyone", "args", "members", "tailnet"]
+            list(d),
+            [
+                "managed",
+                "managed_at",
+                "managed_by",
+                "unmanaged_admits_everyone",
+                "args",
+                "members",
+                "off_preview",
+                "tailnet",
+            ],
         )
         self.assertEqual(
             (d["managed"], d["managed_at"], d["managed_by"]), (True, "2026-01-01 00:00:00", "alice@example.com")
@@ -72,6 +83,114 @@ class AccessHttp(AccessBase):
         self.assertEqual([x["login"] for x in d["transition"]["settable"]], ["bob@example.com"])
         self.assertEqual([x["login"] for x in d["transition"]["fixed"]], ["alice@example.com"])
         self.assertTrue(d["transition"]["fixed"][0]["admitted_today"])
+
+    def test_the_transition_screen_offers_an_allow_login_with_no_row(self):
+        """The co-author only --allow names: the answer offers a settable row of its own, with the role person_role
+        gives them now, so the screen can show them checked and the default press keeps them."""
+        set_config(allow=frozenset({"alice@example.com", "carol@example.com"}))
+        transition = self.get_access()["transition"]
+        self.assertEqual(sorted(transition["admitted_today"]), ["alice@example.com", "carol@example.com"])
+        self.assertEqual(
+            [(x["login"], x["role"], x["name"]) for x in transition["settable"]],
+            [("bob@example.com", "editor", "Bob"), ("carol@example.com", "editor", "carol@example.com")],
+        )
+
+    def test_the_default_press_keeps_a_co_author_only_allow_names(self):
+        """End to end, through the door: the screen's own rows sent back unchanged leave carol getting in. Before this
+        the press the design calls a no-op refused her - the incident the whole feature exists to end."""
+        set_config(allow=frozenset({"alice@example.com", "carol@example.com"}))
+        self.assertEqual(self.call("GET", "/api/pins", headers=CAROL)[0], 200)
+        transition = self.get_access()["transition"]
+        today = set(transition["admitted_today"])  # the boxes the screen starts with checked (access/flow.ts)
+        members = [{"login": x["login"], "role": x["role"]} for x in transition["settable"] if x["login"] in today]
+        code, d = self.call("POST", "/api/access/managed", dict(CONFIRM, managed=True, members=members), ALICE)
+        self.assertEqual(code, 200, d)
+        # bob holds an editor row --allow does not name, so he does not get in today and his box starts unchecked
+        self.assertEqual(
+            (d["added"], d["removed"], d["newly_admitted"]), (["carol@example.com"], ["bob@example.com"], [])
+        )
+        self.assertEqual(self.call("GET", "/api/pins", headers=CAROL)[0], 200)
+        self.assertEqual(self.call("GET", "/api/pins", headers=ALICE)[0], 200)
+
+    def test_a_managed_instance_carries_the_off_directions_preview(self):
+        """While the flag is on the answer says what turning it off would do: who gets in now, who gets in after, the
+        two differences, and whether the owner reading would be shut out."""
+        self.manage()
+        set_config(allow=frozenset({"alice@example.com", "dana@example.com"}))
+        self.assertEqual(
+            self.get_access()["off_preview"],
+            {
+                "admitted_now": ["alice@example.com", "bob@example.com"],
+                "admitted_after": ["alice@example.com", "dana@example.com"],
+                "after_everyone": False,
+                "newly_admitted": ["dana@example.com"],
+                "no_longer_admitted": ["bob@example.com"],
+                "locks_out_requester": False,
+            },
+        )
+
+    def test_the_off_preview_says_after_is_everyone_rather_than_nobody(self):
+        """With neither --allow nor --members-only, turning management off reopens the instance to everyone a header
+        identifies - the direction that most needs the preview. The flag says so; the empty list does not."""
+        self.manage()
+        preview = self.get_access()["off_preview"]
+        self.assertTrue(preview["after_everyone"])
+        self.assertEqual(preview["admitted_after"], [])
+        self.assertEqual(preview["admitted_now"], ["alice@example.com", "bob@example.com"])
+        self.assertTrue(self.get_access()["unmanaged_admits_everyone"])
+
+    def test_the_off_preview_tells_the_owner_before_the_press_that_refuses_it(self):
+        """--allow names bob only: alice's owner row grants her nothing once the flag is off. The screen says so
+        before she presses, and the press she would make is the 409 the preview predicted."""
+        self.manage()
+        set_config(allow=frozenset({"bob@example.com"}))
+        self.assertTrue(self.get_access()["off_preview"]["locks_out_requester"])
+        code, d = self.call("POST", "/api/access/managed", dict(CONFIRM, managed=False), ALICE)
+        self.assertEqual((code, d["reason"]), (409, "locks_out_owner"), d)
+
+    def test_the_off_preview_does_not_warn_an_owner_the_list_names(self):
+        self.manage()
+        set_config(allow=frozenset({"alice@example.com"}))
+        self.assertFalse(self.get_access()["off_preview"]["locks_out_requester"])
+
+    def test_the_off_preview_never_warns_the_machines_own_user(self):
+        """--auth local: admission lets the machine's own user in whatever people.json holds, so no list can shut
+        them out - the same exemption the refusal makes (access.admitted_without_people), asked of the principal that
+        is reading."""
+        self.manage()
+        set_config(
+            auth="local", agent_loopback=False, local_user="dana@example.com", allow=frozenset({"bob@example.com"})
+        )
+        code, d = self.call("GET", "/api/access")
+        self.assertEqual(code, 200, d)
+        self.assertFalse(d["off_preview"]["locks_out_requester"])
+
+    def test_an_unmanaged_instance_carries_no_off_preview(self):
+        """There is nothing to turn off, and the transition screen is the direction that applies."""
+        d = self.get_access()
+        self.assertNotIn("off_preview", d)
+        self.assertIn("transition", d)
+
+    def test_turning_management_off_reports_what_it_did(self):
+        """The off press answers in the same shape as the switch, so the screen can report the server's own count."""
+        self.manage()
+        set_config(allow=frozenset({"alice@example.com", "dana@example.com"}))
+        code, d = self.call("POST", "/api/access/managed", dict(CONFIRM, managed=False), ALICE)
+        self.assertEqual(code, 200, d)
+        self.assertEqual(
+            d,
+            {
+                "ok": True,
+                "managed": False,
+                "added": [],
+                "removed": [],
+                "changed": [],
+                "kept": ["alice@example.com"],
+                "newly_admitted": ["dana@example.com"],
+            },
+        )
+        self.assertFalse(self.get_access()["managed"])
+        self.assertEqual(self.call("GET", "/api/pins", headers=BOB)[0], 403)
 
     def test_tailnet_block_lists_the_directory_without_the_members(self):
         """The wired directory's people appear as {login, name, pic?} rows, the members among them are left out, and

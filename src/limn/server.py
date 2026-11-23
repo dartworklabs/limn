@@ -350,10 +350,19 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
             raise HTTPError(403, "요청 권한이 올바르지 않습니다.", reason="invalid_authority")
         return access.admitted_without_people(authority.principal)
 
+    def principal_admitted_without_people(principal: object) -> bool:
+        """The same question about a read's own principal, which GET /api/access needs to say before the press whether
+        turning management off would shut the reader out. A GET carries a principal and no authority, so the type is
+        checked here too, where access.Principal lives."""
+        if type(principal) is not access.Principal:
+            raise HTTPError(403, "요청 권한이 올바르지 않습니다.", reason="invalid_authority")
+        return access.admitted_without_people(principal)
+
     access_wiring = AccessWiring(
         settings,
         authorize_member_change,
         admitted_without_people,
+        principal_admitted_without_people,
         lambda text: print(text, file=sys.stderr),
         access_facts,
         security.member_rows,

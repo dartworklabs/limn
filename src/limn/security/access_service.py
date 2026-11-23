@@ -39,6 +39,7 @@ from limn.security.people_store import (
     set_member_role,
 )
 from limn.security.values import (
+    DEFAULT_ROLE,
     ROLES,
     SETTABLE_ROLES as SETTABLE_ROLES,
     ManagedAccess,
@@ -169,22 +170,40 @@ class FixedMember:
 @dataclass(frozen=True)
 class TransitionView:
     """What the transition screen needs: who gets in today, the viewer/editor rows the owner may check (`settable`)
-    and the owner/agent rows that stay whatever is checked (`fixed`)."""
+    and the owner/agent rows that stay whatever is checked (`fixed`). Every login of `admitted_today` is in one of the
+    two lists, so the screen can show whoever gets in today and the default press keeps them all."""
 
     admitted_today: tuple[str, ...]
     settable: tuple[Row, ...]
     fixed: tuple[FixedMember, ...]
 
 
+def unrowed_admitted(allow: Collection[str], members_only: bool, rows: Sequence[Row]) -> tuple[str, ...]:
+    """The logins today's admission lets in that people.json holds no row for, sorted: the --allow logins (which
+    --members-only admits beside the members) with no row at all. They are co-authors the run admits and the file does
+    not know, so the transition screen offers them as rows of their own and the default press keeps them; without that
+    the press the design calls a no-op would take their access away. Pure."""
+    held = _member_logins(rows)
+    return tuple(x for x in current_admitted(allow, members_only, rows) if x not in held)
+
+
 def transition_view(allow: Collection[str], members_only: bool, rows: Sequence[Row]) -> TransitionView:
     """The transition screen's contents for an unmanaged instance run with --allow/--members-only and holding these
     people.json rows. Only `settable` logins may be sent back as targets: current_admitted also lists owners and
-    agents, whom a target must not name. Pure."""
+    agents, whom a target must not name.
+
+    `settable` is the viewer and editor rows, and then one row per login admission lets in today that has no row
+    (unrowed_admitted), with the role person_role gives such a person now (DEFAULT_ROLE). Their row does not exist
+    yet; the press creates it, which is what keeps a co-author only --allow names from being locked out by the default
+    press. Pure."""
     admitted = current_admitted(allow, members_only, rows)
     everyone = not members_only and not allow  # an open instance admits any person a header identifies
+    unrowed: tuple[Row, ...] = tuple(
+        {"login": login, "role": DEFAULT_ROLE} for login in unrowed_admitted(allow, members_only, rows)
+    )
     return TransitionView(
         admitted,
-        tuple(x for x in rows if not _is_fixed(x)),
+        tuple(x for x in rows if not _is_fixed(x)) + unrowed,
         tuple(FixedMember(x, everyone or row_login(x) in admitted) for x in rows if _is_fixed(x)),
     )
 
@@ -193,9 +212,11 @@ def _admitted(
     managed: bool, allow: Collection[str], members_only: bool, members: Collection[str]
 ) -> frozenset[str] | None:
     """The logins admission lets in with the flag as `managed`, these people.json logins and these run arguments
-    (access.admit); None when everyone a header identifies gets in (an open instance), which cannot be listed. Two
-    things read it, so both follow the same rule: the result's `newly_admitted`, by comparing the state before the
-    press with the state after, and _judge_against, by asking whether the state after lets the requester in."""
+    (access.admit); None when everyone a header identifies gets in (an open instance), which cannot be listed. Three
+    things read it, so all follow the same rule: the result's `newly_admitted`, by comparing the state before the
+    press with the state after; _would_lock_out, by asking whether a state lets the requester in (the transition's
+    refusal and the screen's off-direction preview both go through it); and off_preview, for the two columns it
+    shows."""
     if managed:
         return frozenset(members)
     if members_only:
@@ -208,6 +229,12 @@ def _admitted(
 def _member_logins(rows: Sequence[Row]) -> set[str]:
     """The logins of these people.json rows."""
     return {row_login(x) for x in rows}
+
+
+def _listed(logins: Collection[str]) -> tuple[str, ...]:
+    """These logins as a column of the screen reads them: sorted, without any no person could hold (which
+    current_admitted leaves out of today's answer for the same reason)."""
+    return tuple(sorted(x for x in logins if valid_login(x)))
 
 
 def _is_fixed(row: Row) -> bool:
@@ -239,6 +266,86 @@ def _requester(by: Mapping[str, object]) -> str:
     return login
 
 
+def _would_lock_out(
+    members: Collection[str],
+    requester: str,
+    managed: bool,
+    *,
+    admitted_without_people: bool,
+    allow: Collection[str],
+    members_only: bool,
+) -> bool:
+    """Would the state these people.json logins and this flag produce refuse `requester` at once? _admitted - the same
+    reasoning admission itself follows - says who that state lets in. An instance that admits everyone a header
+    identifies (no flag, no --allow, no --members-only) can never shut anyone out, so it never does; otherwise the
+    requester must be among those logins. Holding a row is not the same as being admitted: with --allow alone an owner
+    row grants no entry once the flag is off, which is how turning management off used to lock out the only owner.
+
+    `admitted_without_people` is exempt: admission lets such a requester in whatever people.json holds (a token
+    principal, and the machine's own user under --auth local, whose --local-user login looks like anyone else's). The
+    HTTP boundary knows the principal and decides it there; valid_login() cannot stand for it.
+
+    The transition's refusal (_judge_against) and the screen's preview of turning management off (off_preview) both
+    ask this one question, so what the screen predicts and what the press refuses cannot disagree. Pure."""
+    if admitted_without_people:
+        return False
+    after = _admitted(managed, allow, members_only, members)
+    return after is not None and requester not in after
+
+
+@dataclass(frozen=True)
+class OffPreview:
+    """What turning management off would do, for the screen to show before the press: a widening change is shown in
+    the same shape as the switch that turned it on, and only then sent (design §C).
+
+    `admitted_now` is who the member list lets in while the flag is on. `admitted_after` is who the run's own
+    --allow/--members-only let in once it is off, and `after_everyone` says that "after" is everyone a header
+    identifies - a set that cannot be listed, so `admitted_after` is then empty and that empty list must not be read
+    as "nobody". `newly_admitted` and `no_longer_admitted` are the two differences, empty while "after" is everyone
+    (nobody loses, and who is gained cannot be named). `locks_out_requester` is whether the press would leave the
+    owner who is looking unable to get in, asked of _would_lock_out - the same question the refusal asks - so the
+    screen says it before the press instead of the server saying it after."""
+
+    admitted_now: tuple[str, ...]
+    admitted_after: tuple[str, ...]
+    after_everyone: bool
+    newly_admitted: tuple[str, ...]
+    no_longer_admitted: tuple[str, ...]
+    locks_out_requester: bool
+
+
+def off_preview(
+    allow: Collection[str],
+    members_only: bool,
+    rows: Sequence[Row],
+    requester: str,
+    *,
+    admitted_without_people: bool,
+) -> OffPreview:
+    """What turning management off would do on a managed instance run with these arguments and holding these rows,
+    for `requester` - the owner reading the screen. The press sends no member list (turning off changes no row), so
+    the state after holds exactly these rows, which is what _judge_against will judge when it arrives. A login no
+    person could hold is left out of both columns, as current_admitted leaves it out. Pure."""
+    members = _member_logins(rows)
+    now = _admitted(True, allow, members_only, members) or frozenset[str]()
+    after = _admitted(False, allow, members_only, members)
+    return OffPreview(
+        _listed(now),
+        () if after is None else _listed(after),
+        after is None,
+        () if after is None else _listed(after - now),
+        () if after is None else _listed(now - after),
+        _would_lock_out(
+            members,
+            requester,
+            False,
+            admitted_without_people=admitted_without_people,
+            allow=allow,
+            members_only=members_only,
+        ),
+    )
+
+
 def _judge_against(
     rows: Sequence[Row],
     wanted: dict[str, str],
@@ -254,26 +361,38 @@ def _judge_against(
     RoleNotSettable for a target that names a current owner or agent: the screen does not send those rows, so a request
     that does disagrees with the file, and the owner's approval binds to what they were shown.
 
-    LocksOutOwner when the state this press produces would refuse the requester at once. That state's people.json
-    logins are the owner and agent rows (kept whatever is sent) plus the targets, and _admitted - the same reasoning
-    admission itself follows - says who it lets in with the flag the press writes and the run's arguments. An instance
-    that admits everyone a header identifies (no flag, no --allow, no --members-only) can never shut them out, so it is
-    never refused; otherwise the requester must be among those logins. Holding a row is not the same as being admitted:
-    with --allow alone an owner row grants no entry once the flag is off, which is how turning management off used to
-    lock out the only owner.
-
-    `admitted_without_people` is exempt from that judgement: admission lets such a requester in whatever people.json
-    holds (a token principal, and the machine's own user under --auth local, whose --local-user login looks like
-    anyone else's). The HTTP boundary knows the principal and decides it there; valid_login() cannot stand for it."""
+    LocksOutOwner when the state this press produces would refuse the requester at once (_would_lock_out, which the
+    screen's off-direction preview asks too). That state's people.json logins are the owner and agent rows (kept
+    whatever is sent) plus the targets."""
     fixed = _member_logins([x for x in rows if _is_fixed(x)])
     for login, role in wanted.items():
         if login in fixed:
             raise RoleNotSettable(login, role)
-    if admitted_without_people:
-        return
-    after = _admitted(managed, allow, members_only, fixed | set(wanted))
-    if after is not None and requester not in after:
+    if _would_lock_out(
+        fixed | set(wanted),
+        requester,
+        managed,
+        admitted_without_people=admitted_without_people,
+        allow=allow,
+        members_only=members_only,
+    ):
         raise LocksOutOwner(requester)
+
+
+def _rows_as_target(rows: Sequence[Row], managed: bool, allow: Collection[str], members_only: bool) -> dict[str, str]:
+    """The target list a press that sent none means: the viewer and editor rows as they stand, taken from the rows read
+    under the lock. A press that turns management **on** also keeps whoever gets in today with no row of their own
+    (unrowed_admitted), with the role person_role gives them (DEFAULT_ROLE) - once the flag is on only people.json
+    admits, so leaving them out would shut out a co-author only --allow named, and "leave the rows as they are" would
+    not agree with the default press of the transition screen, which offers exactly these rows checked.
+
+    Turning management **off** adds nobody: admission goes back to --allow/--members-only, which already lets those
+    logins in, so a row for them would change who is written without changing who gets in (the screen's off direction
+    sends no member list at all). Pure."""
+    held = {row_login(x): role_value(x.get("role")) for x in rows if not _is_fixed(x)}
+    if not managed:
+        return held
+    return held | {login: DEFAULT_ROLE for login in unrowed_admitted(allow, members_only, rows)}
 
 
 def _stamp(now: float) -> str:
@@ -302,7 +421,8 @@ def apply_managed(
 
     `targets=None` means "leave the viewer and editor rows as they are": the list is taken from the rows read under
     the lock, never from a read made before it, so a member added by another process meanwhile is kept. A stored role outside the four is read as viewer
-    (role_value), so that row is kept as a viewer, not rewritten.
+    (role_value), so that row is kept as a viewer, not rewritten. Turning management on that way also keeps whoever
+    gets in today with no row at all, as the transition screen's default press does (_rows_as_target).
 
     Raises DuplicateTarget, RoleNotSettable and ValueError before any file is opened (_judge), then, on the rows read
     under the lock and before anything is written, RoleNotSettable and LocksOutOwner (_judge_against); ValueError for an
@@ -326,11 +446,7 @@ def apply_managed(
 
     def step(rows: list[Row]) -> tuple[ManagedResult, list[MemberChange]]:
         """Edits rows to the target -> the result, and the audit changes."""
-        wanted = (
-            judged
-            if judged is not None
-            else {row_login(x): role_value(x.get("role")) for x in rows if not _is_fixed(x)}
-        )
+        wanted = judged if judged is not None else _rows_as_target(rows, managed, allow, members_only)
         _judge_against(
             rows,
             wanted,

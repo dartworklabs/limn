@@ -32,9 +32,31 @@ function admittedRows(transition: AccessTransition): AccessMember[] {
   return [...transition.settable, ...transition.fixed].filter((member) => today.has(member.login));
 }
 
+/** These logins as rows to read: the member row where the instance has one, and the login alone where it does not (a
+ * login only --allow names, which has no row until the switch makes one). A row with no role shows none. Pure. */
+function loginRows(logins: readonly string[], members: readonly AccessMember[]): AccessMember[] {
+  const byLogin = new Map(members.map((member) => [member.login, member]));
+  return logins.map((login) => byLogin.get(login) || { login, name: '', role: '' });
+}
+/** How many people keep coming in after management is turned off: those who get in now and still would. The server
+ * counted the two columns, so this only subtracts. Pure. */
+function offKeptCount(preview: AccessOffPreview) {
+  return preview.admitted_now.length - preview.no_longer_admitted.length;
+}
+
 /** Whether two lists name the same logins, in any order. Pure. */
 function sameLogins(first: readonly string[], second: readonly string[]) {
   return first.length === second.length && [...first].sort().join('\n') === [...second].sort().join('\n');
 }
 
-export { sameLogins, admittedAfter, admittedRows, checkedOf, keptCount, newlyAdmitted, seenText };
+export {
+  sameLogins,
+  admittedAfter,
+  admittedRows,
+  checkedOf,
+  keptCount,
+  loginRows,
+  newlyAdmitted,
+  offKeptCount,
+  seenText,
+};

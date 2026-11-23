@@ -13,6 +13,12 @@ let TRANSITION_OPEN = false;
 function setTransitionOpen(open: boolean) {
   TRANSITION_OPEN = open;
 }
+/** Whether the screen shows what turning management off would do (the same comparison, the other way) rather than the
+ * list. Turning off widens admission, so it is shown and only then sent. */
+let OFF_OPEN = false;
+function setOffOpen(open: boolean) {
+  OFF_OPEN = open;
+}
 /** The logins of the transition's settable rows the owner has checked - who keeps getting in after the switch. */
 const CHECKED = new Set<string>();
 /** The role picked for a tailnet candidate that is not a member yet, by login ('viewer' unless the owner changed it). */
@@ -31,9 +37,9 @@ let TYPED_ROLE: string = ROLE.VIEWER;
 function setTypedRole(role: string) {
   TYPED_ROLE = role;
 }
-/** What the server said the last switch to managed admission did (POST /api/access/managed), with the logins the
- * preview had counted as newly let in; null until a switch went through, and again once the owner changes anything or
- * reopens the screen. */
+/** What the server said the last press of POST /api/access/managed did - the switch to managed admission or the turn
+ * back off - with the logins the preview had counted as newly let in; null until a press went through, and again once
+ * the owner changes anything or reopens the screen. */
 let RESULT: { done: ManagedChanged; previewed: string[] } | null = null;
 function setResult(result: { done: ManagedChanged; previewed: string[] } | null) {
   RESULT = result;
@@ -50,5 +56,17 @@ let NOTE = '';
 function setNote(text: string) {
   NOTE = text;
 }
-export { ACCESS, CHECKED, NOTE, PICKED_ROLE, RESULT, STALE, TRANSITION_OPEN, TYPED_LOGIN, TYPED_ROLE, pickedRole };
-export { setAccess, setNote, setResult, setStale, setTransitionOpen, setTypedLogin, setTypedRole };
+export {
+  ACCESS,
+  CHECKED,
+  NOTE,
+  OFF_OPEN,
+  PICKED_ROLE,
+  RESULT,
+  STALE,
+  TRANSITION_OPEN,
+  TYPED_LOGIN,
+  TYPED_ROLE,
+  pickedRole,
+};
+export { setAccess, setNote, setOffOpen, setResult, setStale, setTransitionOpen, setTypedLogin, setTypedRole };

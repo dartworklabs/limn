@@ -9,8 +9,19 @@ import { translate, translateTemplate } from '../platform/i18n.ts';
 import { $, findMaybe } from '../platform/dom.ts';
 import { META } from '../app/state.ts';
 import { ROLE } from '../app/rules-tables.ts';
-import { ACCESS, CHECKED, NOTE, RESULT, STALE, TRANSITION_OPEN, TYPED_LOGIN, TYPED_ROLE, pickedRole } from './state.ts';
-import { admittedRows, keptCount, newlyAdmitted, sameLogins, seenText } from './rules.ts';
+import {
+  ACCESS,
+  CHECKED,
+  NOTE,
+  OFF_OPEN,
+  RESULT,
+  STALE,
+  TRANSITION_OPEN,
+  TYPED_LOGIN,
+  TYPED_ROLE,
+  pickedRole,
+} from './state.ts';
+import { admittedRows, keptCount, loginRows, newlyAdmitted, offKeptCount, sameLogins, seenText } from './rules.ts';
 
 /** The two roles a screen may give (access_service.SETTABLE_ROLES); every other role is drawn, never offered. */
 const SETTABLE: readonly string[] = [ROLE.VIEWER, ROLE.EDITOR];
@@ -161,6 +172,25 @@ function noteLine() {
 function statusLine(view: AccessView) {
   return translateTemplate('화면에서 관리 중 · 멤버 {n}명', { n: view.members.length });
 }
+/** What a managed instance carries at the top: how it decides admission now, and the one action that changes that -
+ * turning management off. The action is drawn only with the preview it opens (the server sends them together), since
+ * turning off widens admission and is never sent unseen. */
+function managedRow(view: AccessView) {
+  return html`<div class="acc-managed">
+    <p class="acc-status">${statusLine(view)}</p>
+    ${
+      view.off_preview
+        ? html`<button
+            class="btn-sm btn-secondary acc-off-b"
+            data-act="access-off"
+            data-tip="${translate('관리를 끄면 무엇이 달라지는지 먼저 보입니다')}"
+          >
+            ${translate('접근 관리 끄기')}
+          </button>`
+        : null
+    }
+  </div>`;
+}
 /** The note at the head of the tailnet list: it holds only the people this server can see - or, when the daemon could
  * not be read, says why there is none. */
 function tailnetNote(view: AccessView) {
@@ -255,6 +285,106 @@ function transitionColumns(transition: AccessTransition, everyone: boolean) {
   </div>`;
 }
 
+// ---------------------------------------------------------------- turning management off
+
+/** One line of a column of the off comparison: who, and the role their row holds (none for a login that has no row -
+ * one only --allow names). It has no box: turning management off changes no row, so there is nothing to check. */
+function offLine(member: AccessMember) {
+  return html`<div class="acc-check acc-plain">
+    ${personCell(member.name, member.login)}
+    ${member.role ? html`<span class="acc-seen">${translate(ROLE_WORD[member.role] || member.role)}</span>` : null}
+  </div>`;
+}
+/** What the right column holds when it cannot be a list of people: everyone a header identifies, or - with a list
+ * that names nobody - no one at all. The server says which (after_everyone), so the empty list is never read as
+ * "nobody" by mistake. */
+function offAfterRows(view: AccessView, preview: AccessOffPreview) {
+  if (preview.after_everyone) return html`<p class="acc-every">${translate('신원 헤더가 확인한 테일넷의 모두')}</p>`;
+  if (!preview.admitted_after.length)
+    return html`<p class="acc-every">${translate('아무도 들어오지 못합니다 — 목록이 비어 있습니다')}</p>`;
+  return loginRows(preview.admitted_after, view.members).map(offLine);
+}
+/** The named differences the press would make: who starts getting in, and who stops. Nothing is named while "after"
+ * is everyone, which cannot be listed. */
+function offDiffLines(preview: AccessOffPreview) {
+  return html`${
+    preview.newly_admitted.length
+      ? html`<p class="acc-new">
+          ${translate('새로 들어오게 되는 사람')}:
+          <b translate="no">${preview.newly_admitted.join(', ')}</b>
+        </p>`
+      : null
+  }${
+    preview.no_longer_admitted.length
+      ? html`<p class="acc-new">
+          ${translate('못 들어오게 되는 사람')}: <b translate="no">${preview.no_longer_admitted.join(', ')}</b>
+        </p>`
+      : null
+  }`;
+}
+/** What turning management off would do, in one line. */
+function offSummary(preview: AccessOffPreview) {
+  if (preview.after_everyone)
+    return html`<p class="acc-sum">
+      ${translateTemplate('{n}명 유지', { n: preview.admitted_now.length })} ·
+      ${translate('그 밖의 모두도 들어옴')}
+    </p>`;
+  return html`<p class="acc-sum">
+    ${translateTemplate('{n}명 유지', { n: offKeptCount(preview) })} ·
+    ${translateTemplate('{n}명 새로 들어옴', { n: preview.newly_admitted.length })} ·
+    ${translateTemplate('{n}명 못 들어옴', { n: preview.no_longer_admitted.length })}
+  </p>`;
+}
+/** Turning management off, in the switch's own shape: the two columns, reading from the member list this instance is
+ * managed by to the --allow/--members-only the run would go back to. No checkbox anywhere - the press changes no row,
+ * so its body carries the confirmation phrase and no member list. The owner's own loss is said here, before the
+ * press, and where it holds the press is not offered at all: the server would refuse it (409 locks_out_owner). */
+function offColumns(view: AccessView, preview: AccessOffPreview) {
+  return html`<div class="acc-tr">
+    ${noteLine()}<h3 class="acc-h">${translate('접근 관리 끄기')}</h3>
+    <p class="acc-note">
+      ${translate('끄면 이 멤버 목록이 아니라 이 실행이 받은 --allow·--members-only 가 다시 입장을 정합니다')}
+    </p>
+    ${
+      preview.after_everyone
+        ? html`<p class="acc-note">
+            ${translate('이 실행에는 목록이 없어, 끄면 신원 헤더가 확인한 테일넷의 모두가 들어옵니다')}
+          </p>`
+        : null
+    }
+    <div class="acc-cols">
+      <div class="acc-col">
+        <h4 class="acc-col-h">${translate('지금 들어오는 사람')}</h4>
+        <div class="acc-col-rows">${loginRows(preview.admitted_now, view.members).map(offLine)}</div>
+      </div>
+      <div class="acc-col">
+        <h4 class="acc-col-h">${translate('끈 뒤 들어오는 사람')}</h4>
+        <div class="acc-col-rows">${offAfterRows(view, preview)}</div>
+      </div>
+    </div>
+    ${offDiffLines(preview)}
+    ${
+      preview.locks_out_requester
+        ? html`<p class="acc-warn" role="alert">
+            ${translate('끄면 당신도 들어올 수 없게 됩니다 — 서버가 이 변경을 거절합니다. 먼저 이 실행의 목록에 본인을 넣으세요')}
+          </p>`
+        : null
+    }
+    <div class="acc-tr-foot">
+      ${offSummary(preview)}
+      <span class="sp"></span>
+      <button class="btn-sm btn-secondary" data-act="access-off-cancel">${translate('취소')}</button>
+      ${
+        preview.locks_out_requester
+          ? null
+          : html`<button class="btn-sm btn-destructive" data-act="access-off-apply">
+              ${translate('접근 관리 끄기')}
+            </button>`
+      }
+    </div>
+  </div>`;
+}
+
 // ---------------------------------------------------------------- what the switch did
 
 /** One line of the outcome: what the server counted and, when there are any, whose logins. */
@@ -265,14 +395,17 @@ function resultLine(label: string, logins: readonly string[]) {
     ${logins.length ? html`<span class="acc-res-w" translate="no">${logins.join(', ')}</span>` : null}
   </li>`;
 }
-/** The outcome of the switch, from the server's own answer (POST /api/access/managed): who was added, removed, given
- * another role, which owner and agent rows were kept, and - by login - who was newly let in. Not the preview's count:
- * if the two differ the screen says so. */
+/** The outcome of the press, from the server's own answer (POST /api/access/managed): who was added, removed, given
+ * another role, which owner and agent rows were kept, and - by login - who was newly let in. The same block reports
+ * both directions, named by the flag the server wrote. Not the preview's count: if the two differ the screen says
+ * so. */
 function resultBlock() {
   if (!RESULT) return null;
   const { done, previewed } = RESULT;
   return html`<div class="acc-result" role="status">
-    <h3 class="acc-h">${translate('화면 관리로 전환했습니다')}</h3>
+    <h3 class="acc-h">
+      ${translate(done.managed ? '화면 관리로 전환했습니다' : '접근 관리를 껐습니다')}
+    </h3>
     <ul class="acc-res">
       ${resultLine('추가됨', done.added)} ${resultLine('빠짐', done.removed)} ${resultLine('역할이 바뀜', done.changed)}
       ${resultLine('그대로 둔 소유자·에이전트', done.kept)}
@@ -310,15 +443,16 @@ function tailnetSection(view: AccessView) {
   </section>`;
 }
 /** The dialog's body: the band or the status line, the members and - on a managed instance - the tailnet's people who
- * could be let in; or, when the owner pressed [화면 관리로 전환], the transition. An instance still running on --allow
- * draws its members to read and nothing that changes them, since every such press would be refused (409 not_managed):
- * the band's switch is its one action. After a write whose read-back failed, no list is drawn at all: it would be the
- * world before the write. */
+ * could be let in; or, when the owner pressed [화면 관리로 전환] or [접근 관리 끄기], that direction's comparison. An
+ * instance still running on --allow draws its members to read and nothing that changes them, since every such press
+ * would be refused (409 not_managed): the band's switch is its one action. After a write whose read-back failed, no
+ * list is drawn at all: it would be the world before the write. */
 function screenBody(view: AccessView): Html {
   if (STALE) return html`${noteLine()}${resultBlock()}`;
   if (!view.managed && TRANSITION_OPEN && view.transition)
     return transitionColumns(view.transition, view.unmanaged_admits_everyone);
-  return html`${noteLine()}${resultBlock()}${view.managed ? html`<p class="acc-status">${statusLine(view)}</p>` : unmanagedBand(view)}
+  if (view.managed && OFF_OPEN && view.off_preview) return offColumns(view, view.off_preview);
+  return html`${noteLine()}${resultBlock()}${view.managed ? managedRow(view) : unmanagedBand(view)}
     <section class="acc-sec">
       <h3 class="acc-h">
         ${translate('이 인스턴스의 멤버')}

@@ -753,6 +753,21 @@ interface AccessTransition {
   fixed: AccessFixedMember[];
 }
 
+// What turning management off would do, which GET /api/access carries while the instance is managed. `admitted_now`
+// is who the member list lets in; `admitted_after` is who the run's own --allow/--members-only let in once the flag
+// is off, and `after_everyone` says "after" is everyone a header identifies - a set that cannot be listed, so
+// `admitted_after` is then empty and that empty list must not be read as "nobody". `locks_out_requester` is whether
+// the press would leave the owner who is reading unable to get in, judged by the rule that would refuse it
+// (409 locks_out_owner), so the screen says it before the press.
+interface AccessOffPreview {
+  admitted_now: string[];
+  admitted_after: string[];
+  after_everyone: boolean;
+  newly_admitted: string[];
+  no_longer_admitted: string[];
+  locks_out_requester: boolean;
+}
+
 // One person of the tailnet this server can see who is not a member yet.
 interface TailnetUser {
   login: string;
@@ -769,7 +784,7 @@ interface AccessTailnet {
 }
 
 // GET /api/access: whether the viewer manages admission, who is a member, what the run's arguments say, the transition
-// screen while it is unmanaged, and who could be let in.
+// screen while it is unmanaged, what turning management off would do while it is managed, and who could be let in.
 interface AccessView {
   managed: boolean;
   managed_at?: string;
@@ -778,6 +793,7 @@ interface AccessView {
   args: { allow: string[]; members_only: boolean };
   members: AccessMember[];
   transition?: AccessTransition;
+  off_preview?: AccessOffPreview;
   tailnet: AccessTailnet;
 }
 

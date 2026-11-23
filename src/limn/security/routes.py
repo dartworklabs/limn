@@ -9,9 +9,11 @@ ACCESS_PATH = "/api/access"
 
 
 def get(request: GetRequest, wiring: AccessWiring) -> Reply | None:
-    """Answer the owner's access view; check_read has already refused every other role."""
+    """Answer the owner's access view; check_read has already refused every other role. The reader's own login and
+    principal go in because the view says, before the press, whether turning management off would shut them out."""
     if request.path == ACCESS_PATH:
-        return json_reply(http.access_view(wiring))
+        login = request.actor.get("login")
+        return json_reply(http.access_view(wiring, login if type(login) is str else "", request.principal))
     return None
 
 

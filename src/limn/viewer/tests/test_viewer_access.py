@@ -265,6 +265,29 @@ class AccessUnmanaged(AccessScreenBase):
         page.uncheck('input[data-acc-check="carol@example.com"]')
         self.assertEqual(page.inner_text(".acc-sum").replace("\n", " "), "2명 유지 · 0명 새로 들어옴")
 
+    def test_an_allow_login_with_no_row_is_shown_checked_and_kept(self):
+        """The co-author only --allow names has no people.json row, so the server sends a settable row of its own. He
+        is in both columns, his box starts checked (seeded from admitted_today), and the default press writes his row
+        rather than taking his access away."""
+        set_config(allow=frozenset({OWNER["login"], "dana@example.com"}))
+        page = self.open_screen()
+        page.click('[data-act="access-manage"]')
+        page.wait_for_selector("#access-body .acc-cols")
+        left = page.locator("#access-body .acc-col").nth(0)
+        right = page.locator("#access-body .acc-col").nth(1)
+        self.assertIn("dana@example.com", left.inner_text())
+        self.assertIn("dana@example.com", right.inner_text())
+        self.assertTrue(page.is_checked('input[data-acc-check="dana@example.com"]'))
+        self.assertFalse(page.is_checked('input[data-acc-check="%s"]' % EDITOR["login"]))  # --allow leaves him out
+        self.assertEqual(page.inner_text(".acc-sum").replace("\n", " "), "2명 유지 · 0명 새로 들어옴")
+        page.click('[data-act="access-manage-apply"]')
+        page.wait_for_selector("#access-body .acc-status")
+        rows = json.loads(ps.APP.C.people_file.read_text(encoding="utf-8"))["people"]
+        self.assertEqual(
+            sorted((x["login"], x.get("role")) for x in rows),
+            [(OWNER["login"], "owner"), ("dana@example.com", "editor")],
+        )
+
     def test_applying_the_transition_manages_the_instance_with_the_checked_people(self):
         """[화면 관리로 전환] sends the checked rows; the screen then reads as a managed instance and the flag is on."""
         page = self.open_screen()
@@ -344,6 +367,106 @@ class AccessUnmanaged(AccessScreenBase):
                 everyone = "누구나" in page.inner_text("#access-body .acc-tr")
                 self.assertEqual(everyone, name == "no list")  # the transition says it only where it holds
                 set_config(access=DEFAULT_ACCESS, allow=frozenset())
+
+
+class AccessOff(AccessScreenBase):
+    """Turning management off: the action the managed screen offers, the comparison it opens (the switch's shape, the
+    columns reading the other way), the owner's own loss, and the press."""
+
+    MANAGED = True
+
+    def open_off(self, **device):
+        """The screen open on the off comparison."""
+        page = self.open_screen(**device)
+        page.click('[data-act="access-off"]')
+        page.wait_for_selector("#access-body .acc-cols")
+        settle(page)
+        return page
+
+    def flag(self):
+        """What access.json says now, or None when it is not there."""
+        if not ps.APP.C.access_file.exists():
+            return None
+        return json.loads(ps.APP.C.access_file.read_text(encoding="utf-8"))["managed"]
+
+    def test_the_managed_screen_offers_the_action(self):
+        """A managed instance says how it decides admission and offers the one change to that: turning it off."""
+        page = self.open_screen()
+        self.assertEqual(page.inner_text("#access-body .acc-status"), "화면에서 관리 중 · 멤버 3명")
+        self.assertEqual(self.count(page, '#access-body .acc-managed [data-act="access-off"]'), 1)
+        self.assertEqual(self.count(page, "#access-body .acc-cols"), 0)
+
+    def test_the_comparison_reads_from_the_member_list_to_the_run_arguments(self):
+        """Two sections, two columns, as the switch has - the left one the member list that decides now, the right one
+        the --allow the run would go back to. No checkbox: turning off changes no row."""
+        set_config(allow=frozenset({OWNER["login"], "dana@example.com"}))
+        page = self.open_off()
+        left = page.locator("#access-body .acc-col").nth(0)
+        right = page.locator("#access-body .acc-col").nth(1)
+        self.assertIn("지금 들어오는 사람", left.inner_text())
+        self.assertIn("끈 뒤 들어오는 사람", right.inner_text())
+        self.assertEqual(page.locator("#access-body input").count(), 0)
+        self.assertIn(EDITOR["login"], left.inner_text())
+        self.assertIn("dana@example.com", right.inner_text())
+        self.assertNotIn(EDITOR["login"], right.inner_text())
+        body = page.inner_text("#access-body .acc-tr").replace("\n", " ")
+        self.assertIn("새로 들어오게 되는 사람: dana@example.com", body)
+        self.assertIn("못 들어오게 되는 사람: %s, %s" % (EDITOR["login"], VIEWER["login"]), body)
+        self.assertIn("1명 유지 · 1명 새로 들어옴 · 2명 못 들어옴", body)
+
+    def test_an_open_instance_says_after_is_everyone_not_an_empty_column(self):
+        """With neither --allow nor --members-only, turning management off reopens the instance to every login the
+        tailnet identifies. The column says that in words - it cannot be a list."""
+        page = self.open_off()
+        right = page.locator("#access-body .acc-col").nth(1)
+        self.assertIn("신원 헤더가 확인한 테일넷의 모두", right.inner_text())
+        self.assertEqual(right.locator(".acc-check").count(), 0)
+        body = page.inner_text("#access-body .acc-tr").replace("\n", " ")
+        self.assertIn("이 실행에는 목록이 없어", body)
+        self.assertIn("3명 유지 · 그 밖의 모두도 들어옴", body)
+
+    def test_the_owners_own_loss_is_said_before_the_press(self):
+        """--allow names the editor only: once the flag is off the owner's row grants her nothing. The screen says so
+        and does not offer the press, which the server would refuse (409 locks_out_owner)."""
+        set_config(allow=frozenset({EDITOR["login"]}))
+        page = self.open_off()
+        self.assertIn("당신도 들어올 수 없게 됩니다", page.inner_text("#access-body .acc-warn"))
+        self.assertEqual(self.count(page, '#access-body [data-act="access-off-apply"]'), 0)
+        self.assertEqual(self.count(page, '#access-body [data-act="access-off-cancel"]'), 1)
+        self.assertEqual(self.flag(), True)
+
+    def test_the_press_sends_no_member_list_and_reports_what_the_server_said(self):
+        """The press turns the flag off, leaves every row standing, and the screen reads the server's own answer."""
+        set_config(allow=frozenset({OWNER["login"], "dana@example.com"}))
+        page = self.open_off()
+        page.click('[data-act="access-off-apply"]')
+        page.wait_for_selector("#access-body .acc-result")
+        result = page.inner_text("#access-body .acc-result").replace("\n", " ")
+        self.assertIn("접근 관리를 껐습니다", result)
+        self.assertIn("서버가 새로 들어오게 한 사람: dana@example.com", result)
+        self.assertEqual(self.flag(), False)
+        rows = json.loads(ps.APP.C.people_file.read_text(encoding="utf-8"))["people"]
+        self.assertEqual([x["login"] for x in rows], [x["login"] for x in self.ROWS])
+        page.wait_for_selector("#access-body .acc-band")  # the instance runs on --allow again
+        self.assertEqual(self.count(page, '#access-body [data-act="access-manage"]'), 1)
+
+    def test_cancel_returns_to_the_lists(self):
+        page = self.open_off()
+        page.click('[data-act="access-off-cancel"]')
+        page.wait_for_selector("#access-body .acc-status")
+        self.assertEqual(self.count(page, "#access-body .acc-cols"), 0)
+        self.assertEqual(self.flag(), True)
+
+    def test_english_has_no_korean_left(self):
+        """Every word of the off comparison has an English pair too."""
+        page = self.open(0, lang="en")
+        page.wait_for_selector("#m-access", state="attached")
+        page.click("#btn-more")
+        page.click("#m-access")
+        page.wait_for_selector("#access[open] #access-body .acc-sec")
+        page.click('[data-act="access-off"]')
+        page.wait_for_selector("#access-body .acc-cols")
+        self.assertEqual([c for c in page.inner_text("#access") if "가" <= c <= "힣"], [])
 
 
 class AccessRefusals(AccessScreenBase):
@@ -530,15 +653,15 @@ class AccessLayout(AccessScreenBase):
         return got
 
     def test_layout_at_four_device_classes(self):
-        """The lists, the transition, and a managed instance fit and clip nothing on every device class, in both languages."""
+        """The lists, both directions' comparisons, and a managed instance fit and clip nothing on every device class,
+        in both languages."""
         for name, device in DEVICES.items():
             for managed in (False, True):
                 with self.subTest(device=name, managed=managed):
                     self.write_flag(managed)
                     page = self.open_screen(**device)
                     self.check(page, "%s managed=%s" % (name, managed))
-                    if not managed:
-                        page.click('[data-act="access-manage"]')
-                        page.wait_for_selector("#access-body .acc-cols")
-                        self.check(page, "%s transition" % name)
+                    page.click('[data-act="%s"]' % ("access-off" if managed else "access-manage"))
+                    page.wait_for_selector("#access-body .acc-cols")
+                    self.check(page, "%s %s" % (name, "off" if managed else "transition"))
                     page.close()

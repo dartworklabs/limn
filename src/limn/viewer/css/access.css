@@ -121,6 +121,18 @@ body.compact #access .ns-head .row {
   line-height: round(1.55em, 1px);
   color: var(--foreground);
 }
+/* A managed instance's top line and its one action, on one row; the button goes under the line where the column is
+   too narrow for both. No box, so nothing to give a border or a radius. */
+.acc-managed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.acc-off-b {
+  flex: none;
+}
 
 /* ---------------------------------------------------------------- one row per person */
 /* Four columns the rows share (subgrid), so every role control, date and action starts on one line down the list: who
@@ -347,6 +359,27 @@ body.compact .acc-cols {
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
+/* A column whose people cannot be listed (everyone a header identifies), or that holds nobody: a line in the box's
+   own place, as tall as a row so the two columns still read side by side. */
+.acc-every {
+  display: flex;
+  align-items: center;
+  min-height: var(--row-h);
+  margin: 0;
+  padding: 0 var(--space-2);
+  font-size: var(--text-sm);
+  line-height: round(1.55em, 1px);
+  color: var(--foreground);
+}
+/* The owner's own loss, before the press. Weight tells it apart; no accent line and no box, so there is no radius to
+   pair one with. */
+.acc-warn {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: round(1.55em, 1px);
+  color: var(--foreground);
+}
 .acc-tr-foot {
   display: flex;
   align-items: center;
@@ -356,7 +389,8 @@ body.compact .acc-cols {
   border-top: 1px solid var(--border);
 }
 @media (pointer: coarse) {
-  .acc-check {
+  .acc-check,
+  .acc-every {
     min-height: var(--row-h-touch);
   }
 }

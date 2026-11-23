@@ -164,6 +164,46 @@ class TransitionScreen(unittest.TestCase):
         view = transition_view(frozenset(), False, self.ROWS)
         self.assertTrue(all(f.admitted_today for f in view.fixed))
 
+    def test_an_allow_login_with_no_row_is_a_settable_row(self):
+        """The co-author only --allow names: no line in people.json, so the screen must offer a row of its own, with
+        the role person_role gives them now (editor). Without it the default press removes their access."""
+        rows = [row("o@example.com", "owner"), row("v@example.com", "viewer")]
+        view = transition_view(frozenset({"carol@example.com"}), False, rows)
+        self.assertEqual(view.admitted_today, ("carol@example.com",))
+        self.assertEqual(
+            [(r["login"], role_value(r.get("role"))) for r in view.settable],
+            [("v@example.com", "viewer"), ("carol@example.com", "editor")],
+        )
+
+    def test_members_only_offers_an_allow_login_with_no_row_too(self):
+        """--members-only admits --allow beside the members, so the same login gets in today and needs the same row."""
+        view = transition_view(frozenset({"carol@example.com"}), True, self.ROWS)
+        self.assertIn("carol@example.com", [r["login"] for r in view.settable])
+
+    def test_every_login_admitted_today_is_in_one_of_the_two_lists(self):
+        """What the screen reads from - admitted_today, settable, fixed - agrees: nobody who gets in today is missing
+        from both columns, under each of the three run configurations."""
+        for allow, members_only in (
+            (frozenset({"carol@example.com", "o@example.com"}), False),
+            (frozenset({"carol@example.com"}), True),
+            (frozenset(), False),
+        ):
+            with self.subTest(allow=sorted(allow), members_only=members_only):
+                view = transition_view(allow, members_only, self.ROWS)
+                shown_logins = {r["login"] for r in view.settable} | {f.row["login"] for f in view.fixed}
+                self.assertEqual(set(view.admitted_today) - shown_logins, set())
+
+    def test_an_allow_login_that_holds_a_fixed_row_is_not_doubled(self):
+        """An owner or agent the list names is already a fixed row; it must not appear as a settable one as well."""
+        view = transition_view(frozenset({"o@example.com", "ci@example.com"}), False, self.ROWS)
+        self.assertEqual([r["login"] for r in view.settable], ["a@example.com", "v@example.com"])
+        self.assertEqual([f.row["login"] for f in view.fixed], ["o@example.com", "ci@example.com"])
+
+    def test_an_allow_login_nobody_could_hold_gets_no_row(self):
+        """current_admitted leaves such a login out of today's answer, so the screen offers no row for it either."""
+        view = transition_view(frozenset({"has space", "local"}), False, self.ROWS)
+        self.assertEqual([r["login"] for r in view.settable], ["a@example.com", "v@example.com"])
+
     def test_sending_the_settable_rows_back_is_never_refused_for_their_names(self):
         """The button is pressable: the view's own settable logins are valid targets."""
         tmp = tempfile.TemporaryDirectory()
@@ -202,6 +242,40 @@ class Transition(StateBase):
         self.assertEqual(result, ManagedResult((), (), (), ("ci@example.com", "owner@example.com"), (), True))
         self.assertEqual(self.audited, [flag_line()])  # no row changed, and the flag itself is still recorded
         self.assertEqual(self.roles()["a@example.com"], None)  # a row with no role field keeps it
+
+    def test_the_default_press_keeps_a_co_author_only_allow_names(self):
+        """The regression the design calls a no-op: the screen's own rows, sent back unchanged, keep every login that
+        gets in today - including the --allow co-author with no line - so the press removes nobody's access."""
+        rows = [row("owner@example.com", "owner"), row("b@example.com", "viewer")]
+        self.seed(*rows)
+        allow = frozenset({"carol@example.com", "owner@example.com"})
+        view = transition_view(allow, False, rows)
+        targets = [target(r["login"], role_value(r.get("role"))) for r in view.settable]
+        result = self.apply(targets, allow=allow)
+        self.assertEqual(result.added, ("carol@example.com",))
+        self.assertEqual((result.removed, result.changed), ((), ()))
+        self.assertEqual(self.roles()["carol@example.com"], "editor")
+        self.assertEqual(result.newly_admitted, ("b@example.com",))  # b holds a row the --allow list does not name
+        for login in view.admitted_today:
+            self.assertIn(login, self.roles(), login)
+
+    def test_a_press_that_sends_no_list_keeps_that_co_author_too(self):
+        """targets=None means "leave the viewer and editor rows as they are". Turning management on that way must mean
+        the same as the default press, or the press that sends nothing drops the login the screen would have kept."""
+        self.seed(row("owner@example.com", "owner"), row("b@example.com", "viewer"))
+        result = self.apply(None, allow=frozenset({"carol@example.com", "owner@example.com"}))
+        self.assertEqual(result.added, ("carol@example.com",))
+        self.assertEqual(
+            self.roles(), {"owner@example.com": "owner", "b@example.com": "viewer", "carol@example.com": "editor"}
+        )
+
+    def test_a_press_that_sends_no_list_and_turns_off_adds_no_row(self):
+        """Off hands admission back to --allow, which already lets that login in: a row for them would change the file
+        without changing who gets in, and the screen's off direction sends no member list at all."""
+        self.seed(row("owner@example.com", "owner"), row("b@example.com", "viewer"))
+        result = self.apply(None, managed=False, allow=frozenset({"carol@example.com", "owner@example.com"}))
+        self.assertEqual((result.added, result.removed, result.changed), ((), (), ()))
+        self.assertEqual(self.roles(), {"owner@example.com": "owner", "b@example.com": "viewer"})
 
     def test_allow_login_without_row_gets_an_editor_row(self):
         self.seed(row("owner@example.com", "owner"))
@@ -475,6 +549,103 @@ class TransitionRefusals(StateBase):
         for by in ({}, {"name": "x"}, {"login": None}, {"login": ""}):
             self.refused(ValueError, [target("c@example.com")], by=by)
         self.assertFalse((self.state / "access.json").exists())
+
+
+class OffDirection(unittest.TestCase):
+    """off_preview: what the screen shows before the press that turns management off. Turning off widens admission, so
+    the owner sees who gets in now, who gets in after and whether they would shut themselves out - before sending."""
+
+    ROWS = [row("o@example.com", "owner"), row("b@example.com", "viewer"), row("c@example.com")]
+
+    def preview(self, allow=frozenset(), members_only=False, rows=None, requester="o@example.com", admitted=False):
+        """off_preview on a managed instance run with these arguments."""
+        return access_service.off_preview(
+            frozenset(allow),
+            members_only,
+            self.ROWS if rows is None else rows,
+            requester,
+            admitted_without_people=admitted,
+        )
+
+    def test_under_allow_the_two_columns_are_the_members_and_the_list(self):
+        """Managed: the member list decides. Off: --allow alone decides, so the members who are not in it lose entry
+        and the listed logins with no row gain it."""
+        got = self.preview(allow={"o@example.com", "dana@example.com"})
+        self.assertEqual(got.admitted_now, ("b@example.com", "c@example.com", "o@example.com"))
+        self.assertEqual(got.admitted_after, ("dana@example.com", "o@example.com"))
+        self.assertFalse(got.after_everyone)
+        self.assertEqual(got.newly_admitted, ("dana@example.com",))
+        self.assertEqual(got.no_longer_admitted, ("b@example.com", "c@example.com"))
+
+    def test_an_open_instance_says_after_is_everyone_rather_than_an_empty_list(self):
+        """With neither --allow nor --members-only, off admits everyone a header identifies - a set that cannot be
+        listed. The flag says so; the empty list must not be read as "nobody"."""
+        got = self.preview()
+        self.assertTrue(got.after_everyone)
+        self.assertEqual(got.admitted_after, ())
+        self.assertEqual(got.admitted_now, ("b@example.com", "c@example.com", "o@example.com"))
+        self.assertEqual((got.newly_admitted, got.no_longer_admitted), ((), ()))
+
+    def test_members_only_keeps_the_members_and_adds_the_allow_list(self):
+        """Off under --members-only still admits by people.json, plus --allow: nobody loses entry."""
+        got = self.preview(allow={"dana@example.com"}, members_only=True)
+        self.assertEqual(got.no_longer_admitted, ())
+        self.assertEqual(got.newly_admitted, ("dana@example.com",))
+
+    def test_a_login_no_person_could_hold_is_in_neither_column(self):
+        got = self.preview(allow={"has space", "local", "ok@example.com"})
+        self.assertEqual(got.admitted_after, ("ok@example.com",))
+
+    def test_it_says_before_the_press_that_the_owner_would_be_shut_out(self):
+        """The owner's own loss: with --allow alone their row grants no entry once the flag is off."""
+        self.assertTrue(self.preview(allow={"dana@example.com"}).locks_out_requester)
+
+    def test_an_owner_the_list_names_is_not_shut_out(self):
+        self.assertFalse(self.preview(allow={"o@example.com"}).locks_out_requester)
+
+    def test_an_open_instance_shuts_nobody_out(self):
+        self.assertFalse(self.preview(allow=frozenset()).locks_out_requester)
+
+    def test_a_requester_admission_lets_in_regardless_is_never_shut_out(self):
+        """The machine's own user under --auth local: admission lets them in whatever people.json holds."""
+        self.assertFalse(self.preview(allow={"dana@example.com"}, admitted=True).locks_out_requester)
+
+    def test_the_preview_and_the_refusal_never_disagree(self):
+        """The one that matters: locks_out_requester is true exactly when the press it previews raises LocksOutOwner.
+        Both ask _would_lock_out, so a screen that says "you keep coming in" cannot be followed by a 409."""
+        cases = [
+            (allow, members_only, requester, admitted)
+            for allow in (frozenset(), frozenset({"o@example.com"}), frozenset({"dana@example.com"}))
+            for members_only in (False, True)
+            for requester in ("o@example.com", "b@example.com", "stranger@example.com")
+            for admitted in (False, True)
+        ]
+        for allow, members_only, requester, admitted in cases:
+            where = (sorted(allow), members_only, requester, admitted)
+            with self.subTest(run=where):
+                tmp = tempfile.TemporaryDirectory()
+                self.addCleanup(tmp.cleanup)
+                state = Path(tmp.name) / "state"
+                state.mkdir()
+                (state / "people.json").write_text(json.dumps({"version": 1, "people": self.ROWS}), encoding="utf-8")
+                write_access(state / "access.json", True, "2026-01-01 00:00:00", "o@example.com")
+                said = self.preview(allow, members_only, requester=requester, admitted=admitted).locks_out_requester
+                refused = False
+                try:
+                    apply_managed(
+                        state,
+                        None,  # the off press sends no member list
+                        {"login": requester, "name": "R"},
+                        False,
+                        NOW,
+                        lambda action, details: None,
+                        allow=allow,
+                        members_only=members_only,
+                        admitted_without_people=admitted,
+                    )
+                except LocksOutOwner:
+                    refused = True
+                self.assertEqual(said, refused, where)
 
 
 class SingleEdits(StateBase):

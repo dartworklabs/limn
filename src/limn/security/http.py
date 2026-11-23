@@ -21,12 +21,14 @@ from limn.security.access_service import (
     LastOwner,
     LocksOutOwner,
     NotManagedNow,
+    OffPreview,
     PeopleUnusable,
     RoleNotSettable,
     TargetMember,
     TransitionView,
     add_settable,
     apply_managed,
+    off_preview,
     remove_settable,
     set_settable_role,
     transition_view,
@@ -82,11 +84,15 @@ class AccessWiring:
     the sink still calls it first and cannot be reached without it. `admitted_without_people(authority)` is injected
     for the same reason: it answers access.admitted_without_people for the principal the authority carries - whether
     admission lets this requester in whatever people.json says - which the transition needs and the service must not
-    guess from a login. `warn` takes the text of a failure that stays in the server's log."""
+    guess from a login. `principal_admitted_without_people(principal)` answers the same question for a read's own
+    principal, which the owner's view needs to say, before the press, whether turning management off would shut the
+    reader out; a GET carries a principal and no authority, so it cannot go through the other one.
+    `warn` takes the text of a failure that stays in the server's log."""
 
     settings: Callable[[], RunConfig]
     authorize: Callable[[object, str], object]
     admitted_without_people: Callable[[object], bool]
+    principal_admitted_without_people: Callable[[object], bool]
     warn: Callable[[str], object]
     facts: Callable[[], AccessFacts]
     rows: Callable[[], list[Json] | None]
@@ -194,11 +200,26 @@ def _transition(view: TransitionView) -> Json:
     }
 
 
-def access_view(wiring: AccessWiring) -> Json:
+def _off(preview: OffPreview) -> Json:
+    """The off direction's preview: who gets in now, who gets in after, whether "after" is everyone a header
+    identifies (so the empty `admitted_after` is not read as "nobody"), the two differences, and whether the press
+    would shut the reader out."""
+    return {
+        "admitted_now": list(preview.admitted_now),
+        "admitted_after": list(preview.admitted_after),
+        "after_everyone": preview.after_everyone,
+        "newly_admitted": list(preview.newly_admitted),
+        "no_longer_admitted": list(preview.no_longer_admitted),
+        "locks_out_requester": preview.locks_out_requester,
+    }
+
+
+def access_view(wiring: AccessWiring, requester: str, principal: object) -> Json:
     """GET /api/access: the flag with its stamp, whether turning it off would admit everyone (neither --allow nor
     --members-only: a set that cannot be listed), the run's arguments, the member rows, the transition screen while the
-    instance is not managed, and the tailnet's people who are not members. 403 access_unreadable or people_unreadable
-    while either file cannot be used. Reads only."""
+    instance is not managed, what turning management off would do while it is (`off_preview`, judged for `requester` -
+    the owner reading - through the same rule that would refuse the press), and the tailnet's people who are not
+    members. 403 access_unreadable or people_unreadable while either file cannot be used. Reads only."""
     facts, rows, config = wiring.facts(), wiring.rows(), wiring.settings()
     if facts.managed == "unusable":
         raise _access_unreadable()
@@ -214,7 +235,17 @@ def access_view(wiring: AccessWiring) -> Json:
     out["unmanaged_admits_everyone"] = not config.allow and not members_only
     out["args"] = {"allow": sorted(config.allow), "members_only": members_only}
     out["members"] = [_member(x) for x in rows]
-    if not managed:
+    if managed:
+        out["off_preview"] = _off(
+            off_preview(
+                config.allow,
+                members_only,
+                rows,
+                requester,
+                admitted_without_people=wiring.principal_admitted_without_people(principal),
+            )
+        )
+    else:
         out["transition"] = _transition(transition_view(config.allow, members_only, rows))
     directory = wiring.directory(frozenset(_row_login(x) for x in rows))
     tailnet: Json = {"users": list(directory.users), "partial": directory.partial}
