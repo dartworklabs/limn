@@ -1559,6 +1559,32 @@ class PinsMdInstructions(AccessBase):
         self.assertEqual(lines[i + 1], md_render.claim_guidance("http://127.0.0.1:18999"))
         self.assertEqual(lines[i + 2], md_render.TOKEN_GUIDANCE)
 
+    def test_close_guidance_writes_as_a_person_only_for_the_user(self):
+        """The close guidance sends a person's identity to the requester line: close as that person only for the user
+        you work for, else ask for a token. The line still starts as agents match it."""
+        self.add()
+        lines = ps.APP.C.pins_md.read_text(encoding="utf-8").splitlines()
+        (line,) = [ln for ln in lines if ln.startswith("처리한 핀은 닫는다 — ")]
+        self.assertIn(
+            "머리말 '요청자:' 줄의 신원 출처가 사람 신원(테일넷 헤더·프록시 헤더·로컬 소유자)이면 그 사람이 내가 일하는 "
+            '사용자일 때만 닫고 본문에 `"review":true` 를 넣는다(아니면 닫지 말고 토큰을 요청한다)',
+            line,
+        )
+        self.assertNotIn("테일넷 주소로 닫는 에이전트는", line)
+
+    def test_reply_guidance_replies_as_a_person_only_for_the_user(self):
+        """The reply guidance follows the token line and replies as a person only for the user you work for."""
+        self.add()
+        lines = ps.APP.C.pins_md.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(lines[lines.index(md_render.TOKEN_GUIDANCE) + 1], md_render.REPLY_GUIDANCE)
+        self.assertTrue(md_render.REPLY_GUIDANCE.startswith("답글(0.2.2): "))
+        self.assertIn(
+            "('요청자:' 줄의 신원 출처가 테일넷 헤더·프록시 헤더·로컬 소유자)는 그 사람이 내가 일하는 사용자일 때만 "
+            '답글을 달고 본문에 `"reopen":false` 를 넣는다',
+            md_render.REPLY_GUIDANCE,
+        )
+        self.assertNotIn("테일넷 주소로 닫을 때", md_render.REPLY_GUIDANCE)
+
     def test_remote_agents_are_told_to_use_a_token(self):
         self.add()
         _, tok = token_create(ps.APP.C.state, "ci")

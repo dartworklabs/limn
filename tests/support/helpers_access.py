@@ -273,6 +273,31 @@ def mask(md: str) -> str:
     return TIME_LINE.sub("갱신: <갱신>  ·", md)
 
 
+# The two pins.md guidance clauses docs/adr/0056-pins-md-requester-line.md rewrote: (as released before it, as now).
+REWRITTEN_CLAUSES = (
+    (
+        '테일넷 주소로 닫는 에이전트는 요청이 사람 신원을 달고 가므로 본문에 `"review":true` 를 넣는다',
+        "머리말 '요청자:' 줄의 신원 출처가 사람 신원(테일넷 헤더·프록시 헤더·로컬 소유자)이면 그 사람이 내가 일하는 "
+        '사용자일 때만 닫고 본문에 `"review":true` 를 넣는다(아니면 닫지 말고 토큰을 요청한다)',
+    ),
+    (
+        '(테일넷 주소로 닫을 때 `"review":true` 를 넣는 경우, `--auth local` 의 헤더 없는 curl)는 답글 본문에 '
+        '`"reopen":false` 를 넣는다',
+        "('요청자:' 줄의 신원 출처가 테일넷 헤더·프록시 헤더·로컬 소유자)는 그 사람이 내가 일하는 사용자일 때만 "
+        '답글을 달고 본문에 `"reopen":false` 를 넣는다',
+    ),
+)
+
+
+def as_before_requester_line(md: str) -> str:
+    """pins.md as a release before ADR-0056 rendered the same state: its one requester line dropped and the two guidance
+    clauses ADR-0056 rewrote put back as they were (REWRITTEN_CLAUSES); fails unless there is exactly one requester line."""
+    out = without_requester(md)
+    for before, now in REWRITTEN_CLAUSES:
+        out = out.replace(now, before)
+    return out
+
+
 def without_requester(md: str) -> str:
     """pins.md without its one requester line (docs/adr/0056-pins-md-requester-line.md), to compare it with a release
     that has none; fails unless the text has exactly one line starting with '요청자: '."""

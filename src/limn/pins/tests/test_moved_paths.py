@@ -41,10 +41,10 @@ from helpers_access import (
     AccessBase,
     MovedManuscriptBase,
     ScopedRepo,
+    as_before_requester_line,
     configure,
     mask,
     talk_to,
-    without_requester,
 )
 
 MS_MAIN = (
@@ -560,7 +560,7 @@ class RollbackToV030(MovedManuscriptBase):
         for pid in old:
             for k in ("file", "lo", "hi", "note", "rev", "state"):
                 self.assertEqual(old[pid].get(k), new[pid].get(k), (pid, k))
-        self.assertEqual(mask(self.old("/pins.md")[1]), mask(without_requester(self.pins_md())))  # ADR-0056
+        self.assertEqual(mask(self.old("/pins.md")[1]), mask(as_before_requester_line(self.pins_md())))  # ADR-0056
 
     def test_a_record_the_branch_rewrote_after_the_move_is_in_tree_for_v030(self):
         """After an edit on the branch, 0.3.0 sees the legacy pin under the new root and can edit its range."""
