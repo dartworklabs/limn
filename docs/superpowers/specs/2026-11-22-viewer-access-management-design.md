@@ -7,6 +7,8 @@
 > 소유자가 2026-11-22에 고른 것 셋 — ① 테일넷 목록은 **LocalAPI만**(자격증명 없음, 부분 목록임을 화면에 명시), ② 허용 목록의 정본 전환은 **소유자가 누르는 일회 전환**(자동 흡수하지 않는다), ③ 마지막 `owner` 보호는 **화면과 CLI 두 문 모두**를 묶는다. 그 밖에 이 문서가 §내가 정한 것으로 박은 결정은 구현자가 추측하지 않도록 답을 적어 둔 것이고, 소유자가 읽고 뒤집을 수 있다.
 >
 > 되돌리기 어려운 결정이라 **ADR-0054**를 함께 쓴다(ADR-0002 §2 권한 층의 "소유자 전용 작업은 당분간 CLI 수준" 조항을 **부분 대체**). ADR-0002·0003·0007 본문은 동결이라 건드리지 않는다([workflow.md](../../handbook/workflow.md) §결정 기록).
+>
+> **승인 뒤에 고친 문장 하나 — §검증, 전환의 원자성.** 그 항목은 "뒤가 실패해도 넓어지지 않음"이라고 적고 있었다. 시공 중의 시험이 그 반례를 보였다. `--members-only` 인스턴스는 관리 모드가 아니어도 `people.json`으로 입장을 정하므로, `people.json`은 썼고 `access.json`은 못 쓴 절반은 그 누름이 쓴 줄만큼 입장을 **넓힌다**. 그래서 그 문장을 사실대로 고쳤고, 서버는 그 경우를 아무것도 쓰지 못한 실패와 가른 `500 flag_not_written`으로 알린다. 결정 조항(§내가 정한 것)은 하나도 바뀌지 않았다.
 
 ## 문제
 
@@ -272,7 +274,7 @@ if p.via == "header":
 - `security/tests/test_access.py` — 전환 전/후 `admit()` 판정표. **전환 전 판정이 바뀌지 않는다**를 `--allow`·`--members-only`·둘 다 없음 세 구성에서 못박는다. 전환된 인스턴스에서 빈 `people.json`이 아무도 들이지 않는 것, `--allow`가 무시되는 것.
 - `security/tests/test_access_paths.py` `RoleMatrix` — 새 경로 다섯을 owner·editor·viewer·agent·토큰·로컬 소유자 × 각각으로. `GET /api/access`가 owner 아닌 전원에게 `403`.
 - `security/tests/test_authority.py` — 새 작업의 권한 발급, 등록 안 된 경로의 기본 거부, 다른 작업의 권한으로 멤버를 고치려는 시도의 거부.
-- 새 `security/tests/test_access_managed.py` — `access.json` 없음/정상/못 쓰는 파일 세 상태, 전환의 원자성(`people.json` 먼저·`access.json` 마지막, 뒤가 실패해도 넓어지지 않음), 전환의 멱등성, 자기 잠금 거부(`locks_out_owner`), `owner`·`agent` 줄이 본문에서 빠져도 보존되는 것, 감사 줄의 순서.
+- 새 `security/tests/test_access_managed.py` — `access.json` 없음/정상/못 쓰는 파일 세 상태, 전환의 원자성(`people.json` 먼저·`access.json` 마지막, 뒤가 실패하면 멤버 목록만 서고 플래그는 그대로인 것 — `--members-only` 에서는 그 줄이 곧 입장이라 그 절반이 입장을 넓히므로, 서버가 그 상태를 `500 flag_not_written` 으로 알리는 것까지), 전환의 멱등성, 자기 잠금 거부(`locks_out_owner`), `owner`·`agent` 줄이 본문에서 빠져도 보존되는 것, 감사 줄의 순서.
 - `administration/tests/test_cli.py` — **`limn member remove`·`role`이 마지막 `owner`를 거부한다**(소유자 결정으로 바뀐 동작). 새 소유자를 먼저 더하면 옛 소유자를 지울 수 있다는 것도 같이 못박는다. 화면과 CLI가 같은 공유 연산을 쓰는지는 두 문의 거부가 같은 조건에서 나는 것으로 확인한다.
 - 새 `platform/tests/test_tailnet.py` — `User` 맵 투영(부분 목록 표시, 멤버·무효 로그인 제외), 소켓 없음·타임아웃·`BackendState` 비정상·비-JSON 응답에서 예외를 올리지 않고 이유를 돌려주는 것. **가짜 유닉스 소켓 서버**로 전송까지 돈다(실기기 테일넷 없이).
 - `web/tests/test_errors.py` — 새 `reason` 코드마다 `ui_en.json` 문장이 있고, 내지 않는 코드의 문장은 없음.
