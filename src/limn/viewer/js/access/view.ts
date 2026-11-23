@@ -141,7 +141,7 @@ function unmanagedBand(view: AccessView) {
   return html`<div class="acc-band" role="status">
     <span class="acc-band-ic">${lucideIcon('info')}</span>
     <p class="acc-band-t">
-      ${translate('이 인스턴스는 --allow 로 돌고 있어 화면에서 바꿀 수 없습니다')}
+      ${translate('이 인스턴스의 입장은 아직 이 화면에서 관리하지 않습니다')}
       ${
         allow.length
           ? html`<small class="acc-band-s" translate="no">--allow ${allow.join(', ')}</small>`
@@ -215,12 +215,19 @@ function summaryLine(transition: AccessTransition) {
   </p>`;
 }
 /** The transition view: two columns side by side (stacked in compact), the checkboxes in the right one. */
-function transitionColumns(transition: AccessTransition) {
+function transitionColumns(transition: AccessTransition, everyone: boolean) {
   return html`<div class="acc-tr">
     ${noteLine()}<h3 class="acc-h">${translate('화면 관리로 전환')}</h3>
     <p class="acc-note">
       ${translate('전환하면 이 목록이 입장을 정합니다 — [전환 뒤 들어오는 사람]에서 계속 들어올 사람을 고르세요')}
     </p>
+    ${
+      everyone
+        ? html`<p class="acc-note">
+            ${translate('지금은 테일넷의 누구나 들어옵니다 — 전환하면 이 목록에 있는 사람만 들어옵니다')}
+          </p>`
+        : null
+    }
     <div class="acc-cols">
       <div class="acc-col">
         <h4 class="acc-col-h">${translate('지금 들어오는 사람')}</h4>
@@ -309,7 +316,8 @@ function tailnetSection(view: AccessView) {
  * world before the write. */
 function screenBody(view: AccessView): Html {
   if (STALE) return html`${noteLine()}${resultBlock()}`;
-  if (!view.managed && TRANSITION_OPEN && view.transition) return transitionColumns(view.transition);
+  if (!view.managed && TRANSITION_OPEN && view.transition)
+    return transitionColumns(view.transition, view.unmanaged_admits_everyone);
   return html`${noteLine()}${resultBlock()}${view.managed ? html`<p class="acc-status">${statusLine(view)}</p>` : unmanagedBand(view)}
     <section class="acc-sec">
       <h3 class="acc-h">

@@ -1801,7 +1801,6 @@
  "이 인스턴스의 멤버": "This instance's members",
  "테일넷에서 들이기": "Let in from the tailnet",
  "들일 사람이 없습니다": "No one left to let in",
- "이 인스턴스는 --allow 로 돌고 있어 화면에서 바꿀 수 없습니다": "This instance runs with --allow, so this screen cannot change who comes in",
  "--members-only 로 멤버만 들어옵니다": "--members-only: only members come in",
  "지금은 테일넷의 누구나 들어옵니다": "Right now anyone on the tailnet comes in",
  "화면 관리로 전환": "Manage from the viewer",
@@ -1827,5 +1826,7 @@
  "서버가 새로 들어오게 한 사람": "Newly let in, as the server counted",
  "새로 들어오게 한 사람은 없습니다": "The server let no one in newly",
  "미리 본 결과와 다릅니다 — 서버가 말한 결과가 맞습니다": "Differs from the preview — the server's result is the one that holds",
- "바뀌었지만 목록을 다시 읽지 못했습니다": "The change was made, but the list could not be read again - close this and open it again"
+ "바뀌었지만 목록을 다시 읽지 못했습니다": "The change was made, but the list could not be read again - close this and open it again",
+ "이 인스턴스의 입장은 아직 이 화면에서 관리하지 않습니다": "This screen does not manage who comes in to this instance yet",
+ "지금은 테일넷의 누구나 들어옵니다 — 전환하면 이 목록에 있는 사람만 들어옵니다": "Right now anyone on the tailnet comes in — after the switch only the people in this list do"
 }

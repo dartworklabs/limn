@@ -8,6 +8,7 @@ directory (ps.read_tailnet_directory), the real handler answers everything else.
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_access.py
 """
 
+import dataclasses
 import json
 from unittest import mock
 from urllib.parse import urlparse
@@ -15,7 +16,7 @@ from urllib.parse import urlparse
 from limn.platform.tailnet import TailnetDirectory, TailnetUser, unavailable
 from limn.security.access_store import write_access
 
-from helpers import ps, set_config
+from helpers import DEFAULT_ACCESS, ps, set_config
 from helpers_access import ALICE, BOB, CAROL
 from helpers_browser import BrowserBase, settle
 
@@ -315,6 +316,34 @@ class AccessUnmanaged(AccessScreenBase):
             page.evaluate("[...document.querySelectorAll('#access-body [data-act]')].map(e => e.dataset.act)"),
             ["access-manage"],
         )
+
+    def test_the_band_says_only_what_is_true_of_this_instance(self):
+        """The headline claims no option: with no list it does not say --allow, and the line under it names the state the
+        instance is in - nobody listed (anyone on the tailnet comes in), --allow with its list, or --members-only."""
+        cases = (
+            ("no list", {}, "지금은 테일넷의 누구나 들어옵니다", False),
+            ("--allow", {"allow": frozenset({OWNER["login"]})}, "--allow " + OWNER["login"], True),
+            (
+                "--members-only",
+                {"access": dataclasses.replace(DEFAULT_ACCESS, members_only=True)},
+                "--members-only",
+                False,
+            ),
+        )
+        for name, config, sub, names_allow in cases:
+            with self.subTest(state=name):
+                set_config(**config)
+                page = self.open_screen()
+                head = page.inner_text("#access-body .acc-band-t").split("\n")[0]
+                self.assertNotIn("--allow", head)
+                self.assertNotIn("--members-only", head)
+                self.assertIn(sub, page.inner_text("#access-body .acc-band-s"))
+                self.assertEqual("--allow" in page.inner_text("#access-body .acc-band"), names_allow)
+                page.click('[data-act="access-manage"]')
+                page.wait_for_selector("#access-body .acc-cols")
+                everyone = "누구나" in page.inner_text("#access-body .acc-tr")
+                self.assertEqual(everyone, name == "no list")  # the transition says it only where it holds
+                set_config(access=DEFAULT_ACCESS, allow=frozenset())
 
 
 class AccessRefusals(AccessScreenBase):
