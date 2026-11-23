@@ -25,6 +25,7 @@ EDITOR = {"login": "bob@example.com", "name": "Bob Park", "role": "editor"}
 VIEWER = {"login": "carol@example.com", "name": "Carol Lee", "role": "viewer"}
 SECOND_OWNER = {"login": "frank@example.com", "name": "Frank Oh", "role": "owner"}
 NEW_EDITOR = {"login": "gina@example.com", "name": "Gina Yoo", "role": "editor"}
+LATE_EDITOR = {"login": "helen@example.com", "name": "Helen Suh", "role": "editor"}
 # Holds the answer to GET /api/access until the test lets it go, so a read that lands late is a fact of the test
 # rather than a matter of timing. Installed with evaluate (not a <script>), which the page's CSP allows.
 HOLD_ACCESS_READ = """
@@ -568,6 +569,32 @@ class AccessRefusals(AccessScreenBase):
         self.assertFalse(page.is_checked('input[data-acc-check="%s"]' % EDITOR["login"]))
         self.assertTrue(page.is_checked('input[data-acc-check="%s"]' % NEW_EDITOR["login"]))
         self.assertTrue(page.is_checked('input[data-acc-check="%s"]' % VIEWER["login"]))
+
+    def test_two_reads_in_flight_do_not_hand_back_a_row_the_owner_unchecked(self):
+        """An open, a close and another open leave two reads in flight. The first brings in a member another door
+        added and the owner unchecks them; the second must not offer that row again as one the screen has not
+        seen. Measuring what the screen held when the request went out, instead of when its answer lands, is what
+        gets this wrong: the second request went out before the first answer existed."""
+        ps.APP.C.access_file.unlink()
+        page = self.open_screen()
+        page.evaluate(HOLD_ACCESS_READ)
+        page.keyboard.press("Escape")
+        self.write_people([OWNER, EDITOR, VIEWER, NEW_EDITOR])
+        page.evaluate("window.__holdAccess = true")
+        page.click("#btn-more")
+        page.click("#m-access")  # the first read, held
+        page.keyboard.press("Escape")
+        page.click("#btn-more")
+        page.click("#m-access")  # the second read, held, sent before the first has an answer
+        page.click('[data-act="access-manage"]')
+        page.evaluate("window.__heldAccess.shift()()")  # the first answer: the new member arrives, checked
+        page.wait_for_selector('input[data-acc-check="%s"]' % NEW_EDITOR["login"])
+        page.uncheck('input[data-acc-check="%s"]' % NEW_EDITOR["login"])
+        self.write_people([OWNER, EDITOR, VIEWER, NEW_EDITOR, LATE_EDITOR])  # so the second answer is visible
+        page.evaluate("window.__heldAccess.shift()()")
+        page.wait_for_selector('input[data-acc-check="%s"]' % LATE_EDITOR["login"])
+        self.assertFalse(page.is_checked('input[data-acc-check="%s"]' % NEW_EDITOR["login"]))
+        self.assertTrue(page.is_checked('input[data-acc-check="%s"]' % LATE_EDITOR["login"]))
 
     def test_a_write_whose_read_back_fails_does_not_draw_the_old_lists(self):
         """The remove went through and the read after it fails: the old rows (and the removed member among them) are not

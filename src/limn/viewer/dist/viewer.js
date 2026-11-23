@@ -5688,11 +5688,14 @@ async function loadAccess() {
   if (!isOwner()) return false;
   const dialogOpen = $('#access').open;
   const what = translate('접근 정보 읽기');
-  // What the screen offered before this answer replaces it, so a late answer can tell a row the owner has
-  // already looked at from one that arrived while they were reading.
-  const knownBefore = transitionLogins(ACCESS);
+  let knownBefore = new Set();
   try {
     const answer = await api('GET /api/access', { what, where: NOTICE_HOST.LINE, silent: dialogOpen });
+    // What the screen offers in the instant before this answer replaces it - not when the request went out.
+    // Two reads can be in flight (an open, a close and another open), and the one that started first can land
+    // first: measured here, the second one sees what the first brought in, so a row the owner has since
+    // unchecked is not handed back to them as new.
+    knownBefore = transitionLogins(ACCESS);
     setAccess(answer.data);
   } catch (error) {
     if (dialogOpen) {
