@@ -504,7 +504,7 @@ LaTeX 문서의 줄 핀이 쪽 위에 그리는 상자는 **그 핀의 줄 범�
 - **`--allow`만 있으면** 그 로그인 목록만 들어온다.
 - **`--members-only`면** `people.json`에 있거나 `--allow`에 있는 로그인만 들어온다. 멤버는 소유자가 `limn member add`로 더한다.
 
-거부된 사람은 `403`이고 `people.json`에 기록되지 않는다. 토큰과 `local` 방식의 소유자는 늘 들어온다. 태그 장치처럼 신원 헤더 없이 테일넷으로 온 요청은 허용 목록이 없어도 거부된다. `tailscale` 방식은 `403`(헤더 없는 루프백 에이전트를 끄면 `401`), `local` 방식은 `403`, `trusted-proxy` 방식은 신원 헤더가 없으므로 `401`이다([operations.md](operations.md) §실행 인자). 예외는 하나다. `tailscale` 방식에서 헤더 없는 루프백 에이전트와 `--tailnet-agent`를 함께 켜고, 허용 목록(`--allow`·`--members-only`)이 없고 `access.json`이 없거나 관리를 끈(`managed: false`) 유효한 파일이면 그 요청은 에이전트로 들어온다. 뷰어를 연 브라우저가 거부되면 JSON 대신 짧은 한국어·영어 안내 페이지를 받는다([viewer.md](viewer.md)).
+거부된 사람은 `403`이고 `people.json`에 기록되지 않는다. 토큰과 `local` 방식의 소유자는 늘 들어온다. 태그 장치처럼 신원 헤더 없이 테일넷으로 온 요청은 허용 목록이 없어도 거부된다. `tailscale` 방식은 `403`(헤더 없는 루프백 에이전트를 끄면 `401`), `local` 방식은 `403`, `trusted-proxy` 방식은 신원 헤더가 없으므로 `401`이다([operations.md](operations.md) §실행 인자). 예외는 하나다. `tailscale` 방식에서 헤더 없는 루프백 에이전트와 `--tailnet-agent`를 함께 켠 인스턴스는 허용 목록(`--allow`·`--members-only`)이 없어야 한다. 이 조건에서 `access.json`이 없거나 유효한 파일에 `managed: false`가 설정되어 있으면 그 요청은 에이전트로 들어온다. 뷰어를 연 브라우저가 거부되면 JSON 대신 짧은 한국어·영어 안내 페이지를 받는다([viewer.md](viewer.md)).
 
 ### 신원이 보이는 곳
 
