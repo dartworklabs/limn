@@ -588,6 +588,29 @@ class AccessRefusals(AccessScreenBase):
         self.assertTrue(page.is_checked('input[data-acc-check="%s"]' % VIEWER["login"]))
         self.assertTrue(page.is_checked('input[data-acc-check="%s"]' % NEW_EDITOR["login"]))
 
+    def test_a_kept_check_sends_the_role_the_row_shows_now(self):
+        """A check that survives a reopen says "keep this person", not "keep the role I saw". Another door makes
+        the member an editor while the dialog is shut; the row then says so, and the press sends that role, which
+        leaves the store as it stands. Sending the role remembered from when the box was ticked would quietly
+        undo the other door's change."""
+        ps.APP.C.access_file.unlink()
+        page = self.open_screen()
+        page.click('[data-act="access-manage"]')
+        box = 'input[data-acc-check="%s"]' % VIEWER["login"]
+        page.uncheck(box)
+        page.check(box)  # a decision of the owner's own now, not the default
+        page.keyboard.press("Escape")
+        self.write_people([OWNER, EDITOR, dict(VIEWER, role="editor")])  # the other door promotes them
+        page.click("#btn-more")
+        page.click("#m-access")
+        page.click('[data-act="access-manage"]')
+        page.wait_for_selector('label.acc-check:has(%s) .acc-seen:text-is("편집")' % box)
+        self.assertTrue(page.is_checked(box))
+        page.click('[data-act="access-manage-apply"]')
+        page.wait_for_selector("#access-body .acc-status")
+        stored = json.loads(ps.APP.C.people_file.read_text(encoding="utf-8"))["people"]
+        self.assertEqual([x["role"] for x in stored if x["login"] == VIEWER["login"]], ["editor"])
+
     def test_two_reads_in_flight_do_not_hand_back_a_row_the_owner_unchecked(self):
         """An open, a close and another open leave two reads in flight. The first brings in a member another door
         added and the owner unchecks them; the second must not offer that row again as one the screen has not
