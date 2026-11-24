@@ -283,9 +283,8 @@ def pins_payload(
             ask = askers[k]
             lines = current_lines(r) if ask is not None else None
         est = pin_est(r, ctx) if ctx is not None else True
-        out.append(
-            pin_view(r, show(r), rel.get(r["id"], []), est, k, now, fmap, (superseded or {}).get(r["id"]), ask, lines)
-        )
+        pid = parse_pin(r).core.pid
+        out.append(pin_view(r, show(r), rel.get(pid, []), est, k, now, fmap, (superseded or {}).get(pid), ask, lines))
     return out
 
 

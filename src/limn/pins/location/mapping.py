@@ -766,7 +766,7 @@ def anchor_holds(anchor: Mapping[str, Any], lo: int, nlines: Sequence[str]) -> b
     return _line_is(anchor.get("head"), lo + anchor_offset(anchor.get("head_off")), nlines)
 
 
-def anchor_stands(anchor: Mapping[str, Any] | None, lo: int, hi: int, nlines: Sequence[str]) -> bool:
+def anchor_stands(anchor: Mapping[str, object] | None, lo: int, hi: int, nlines: Sequence[str]) -> bool:
     """Are a stored pin's lines lo..hi still its text: its anchor's head line at lo + head_off and its tail line at
     hi - tail_off (1-based), each by find_line()'s matching (the whole norm()-ed line, or its first 40 characters for a
     line of 12 or more)? The gate a stored pin passes before its mark is measured (docs/handbook/domain.md §줄 핀의 상자

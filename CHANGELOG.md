@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Fixed
+
+- **A stored pin's mark no longer sits on text the pin never held (#547).** Since 0.4.62 `GET /api/pins` drew a line
+  pin's mark where its stored `lo`..`hi` print on the build on screen. Line matching follows open pins only, and a pin
+  whose anchor was lost keeps its old numbers, so once the manuscript was edited an awaiting-review or done pin's mark,
+  and a lost open pin's, covered whatever text had moved into those lines — before a rebuild even as a solid box. The
+  listing now checks the pin's anchor against its file as it is now first: its head line must stand at
+  `lo + head_off` and its tail line at `hi − tail_off`. A pin that does not pass, has no anchor, or whose file cannot be
+  read gets no `boxes` and costs no SyncTeX call. Every state follows the one rule; a closed pin's lines stay the record
+  of when it was closed and are not followed. The viewer shows a line pin without `boxes` whose `est` is true as a
+  **past location** (`과거 위치`) on its card and on the page (ADR-0057). The agent contract is unchanged: no field,
+  `est` rule or `pins.md` row changes, and a missing `boxes` was already the answer for a mark that could not be
+  measured.
+
 ### Changed
 
 - **Startup warns when `--allow` can admit nobody.** If `--allow` is non-empty and every entry is a string
