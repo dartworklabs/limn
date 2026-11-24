@@ -28,7 +28,6 @@ from limn.pins.location.lookup import (
     stamp_location as locate_stamp_location,
     sync_all as locate_sync_all,
 )
-from limn.pins.location.mapping import norm
 from limn.pins.location.position import EstContext, pin_est
 from limn.pins.location.resolve import PickContext
 from limn.pins.location.service import PinLocationService
@@ -49,7 +48,7 @@ from limn.pins.verdict import (
     superseded_by,
     whole_page_target,
 )
-from limn.platform.files import ManuscriptReadError, tex_lines, tree_part
+from limn.platform.files import tex_lines, tree_part
 from limn.runtime import documents
 from limn.runtime.config import RunConfig
 from limn.runtime.documents import DOC_KEY_RE, Doc
@@ -80,8 +79,6 @@ class PinPlaces:
     doc_key: Callable[[Record], str]
     doc_by_key: Callable[[object], Doc | None]
     est_context: Callable[[str], EstContext | None]
-    # current_lines' answer per located file, for this computation only (the value is dropped with it).
-    _lines: dict[Path, tuple[str, ...] | None] = field(default_factory=dict, compare=False, repr=False)
 
     def pin_location(self, r: Record) -> PinLocation | None:
         """Where line pin r's file is under the manuscript root on this machine now (Locations.record, the tail guess
@@ -103,23 +100,6 @@ class PinPlaces:
         if suggestion_of(r.get("suggest")) is None:
             return view_public_record(r, place)
         return view_public_record(r, place, suggest_view(r, None if loc is None else tex_lines(loc.source)))
-
-    def current_lines(self, r: Record) -> tuple[str, ...] | None:
-        """The norm()-ed lines of the file line pin r's file is found at now (pin_location), as the listing checks a pin's
-        anchor against them before it measures its mark (limn.pins.listing.projection.line_marks); None when the file is
-        not located or cannot be read through its checked handle - what cannot be confirmed does not stand. Each file
-        is read once for this computation, however many pins name it. Never changes r."""
-        loc = self.pin_location(r)
-        if loc is None:
-            return None
-        if loc.path not in self._lines:
-            try:
-                raw = loc.source.snapshot_checked()[0]
-            except ManuscriptReadError:
-                self._lines[loc.path] = None
-            else:
-                self._lines[loc.path] = tuple(norm(line) for line in raw)
-        return self._lines[loc.path]
 
     def public_trashed(self, r: Record) -> Json:
         """A Trash entry as GET /api/pins/dropped returns it: public_record placed like public(), without the computed

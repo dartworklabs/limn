@@ -766,32 +766,34 @@ def anchor_holds(anchor: Mapping[str, Any], lo: int, nlines: Sequence[str]) -> b
     return _line_is(anchor.get("head"), lo + anchor_offset(anchor.get("head_off")), nlines)
 
 
-def anchor_stands(anchor: Mapping[str, object] | None, lo: int, hi: int, nlines: Sequence[str]) -> bool:
-    """Are a stored pin's lines lo..hi still its text: its anchor's head line at lo + head_off and its tail line at
-    hi - tail_off (1-based), each by find_line()'s matching (the whole norm()-ed line, or its first 40 characters for a
-    line of 12 or more)? The gate a stored pin passes before its mark is measured (docs/handbook/domain.md §줄 핀의 상자
-    — 범위가 차지하는 영역).
+def anchor_stands(anchor: Mapping[str, object] | None, lo: int, hi: int, lines: Sequence[str]) -> bool:
+    """Are a stored pin's lines lo..hi of lines (a file's lines, as read or already norm()-ed) still its text: its
+    anchor's head line at lo + head_off and its tail line at hi - tail_off (1-based), each by find_line()'s matching
+    (the whole norm()-ed line, or its first 40 characters for a line of 12 or more)? Only those two lines are
+    normalised, so a listing can ask it for every pin of a long file. The gate a stored pin passes before its mark is
+    measured (docs/handbook/domain.md §줄 핀의 상자 — 범위가 차지하는 영역).
 
     Line matching follows only open pins, and a lost anchor keeps its old lo..hi, so a closed or lost pin's numbers
     can name text the pin never held; the mark of those numbers would sit on it. The head alone does not tell: a head
     line that recurs across a manuscript can land on a stored lo by chance, and the tail then names other text. False
-    for no anchor, a head or tail that is missing, empty or not a string, and a line outside nlines; an offset that is
+    for no anchor, a head or tail that is missing, empty or not a string, and a line outside lines; an offset that is
     not an int in 0..9999 counts as 0, as everywhere an anchor is read (anchor_offset)."""
     if anchor is None:
         return False
-    return _line_is(anchor.get("head"), lo + anchor_offset(anchor.get("head_off")), nlines) and _line_is(
-        anchor.get("tail"), hi - anchor_offset(anchor.get("tail_off")), nlines
+    return _line_is(anchor.get("head"), lo + anchor_offset(anchor.get("head_off")), lines) and _line_is(
+        anchor.get("tail"), hi - anchor_offset(anchor.get("tail_off")), lines
     )
 
 
-def _line_is(needle: object, line: int, nlines: Sequence[str]) -> bool:
-    """Is 1-based line `line` of nlines (already norm()-ed) the anchor line needle, by find_line()'s matching? False for
-    a needle that is not a non-empty string and for a line outside nlines."""
+def _line_is(needle: object, line: int, lines: Sequence[str]) -> bool:
+    """Is 1-based line `line` of lines the anchor line needle, by find_line()'s matching on that line norm()-ed (norm is
+    idempotent, so lines may already be)? False for a needle that is not a non-empty string and for a line outside
+    lines."""
     i = line - 1
-    if not isinstance(needle, str) or not needle or not 0 <= i < len(nlines):
+    if not isinstance(needle, str) or not needle or not 0 <= i < len(lines):
         return False
-    key = partial_key(needle)
-    return nlines[i] == needle or (key is not None and key in nlines[i])
+    text, key = norm(lines[i]), partial_key(needle)
+    return text == needle or (key is not None and key in text)
 
 
 def partial_key(needle: str) -> str | None:

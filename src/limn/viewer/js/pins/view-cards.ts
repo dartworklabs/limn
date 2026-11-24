@@ -88,7 +88,7 @@ function card(pin: Pin) {
   }
   // A line pin the page does not draw because it could only be where it was pinned (pastPlace): a lost pin's '위치 잃음'
   // already says more.
-  if (!pin.stale && !isMarkdownPin(pin) && pastPlace(pin))
+  if (!pin.stale && pastPlace(pin))
     tags.push(
       html`<span class="badge" data-tip="${translate(TIP_TEXT.past)}">${lucideIcon('square-dashed')}${translate('과거 위치')}</span>`,
     );

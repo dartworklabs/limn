@@ -139,9 +139,13 @@ BuiltRange: TypeAlias = Callable[[int, int], tuple[int, int] | None]
 # The two askers of one file, bound together to one build's facts (limn.pins.location.resolve.RangeAsker): the lines
 # the range is, then where they print.
 MarkBinding: TypeAlias = tuple[BuiltRange, MarkRange]
-# Where a range of any file of one document prints: (the file's path on this machine, lo, hi) -> its pieces. This is
-# what the pin consumer receives (limn.pins.needs.BoxesFor), bound to the build that document has on screen.
-MarkBoxes: TypeAlias = Callable[[str, int, int], MarkPieces]
+# The caller's check on a file's lines as one answer reads them (today's lines, as read from the file): when it says
+# no, the range is not measured. The pin consumer checks there that a stored pin's lines are still its text.
+LinesHold: TypeAlias = Callable[[Sequence[str]], bool]
+# Where a range of any file of one document prints: (the file's path on this machine, lo, hi, the caller's check of
+# that file's lines) -> its pieces. This is what the pin consumer receives (limn.pins.needs.BoxesFor), bound to the
+# build that document has on screen.
+MarkBoxes: TypeAlias = Callable[[str, int, int, LinesHold], MarkPieces]
 # The forward SyncTeX pass itself, which the pin consumer owns and the composition root injects
 # (limn.pins.location.resolve.range_boxes): the document, a manuscript file, that file as the build read it (None when
 # the build kept no record), the file as it is today, that build's PDF and every page of it as (width, height) in

@@ -38,6 +38,7 @@ SECOND = [0.125, 0.5, 0.5, 0.0625]
 # The marks() harness: the pins' marks land in `drawn` instead of in a page, one entry per appended element.
 MARKS_HARNESS = r"""
 const DOC='d', DEFAULT_DOC='d', markBadgeSides=()=>{}, drawChips=()=>{}; let PINS=[], REVIEW_ALL=[]; const drawn=[];
+const DOCS=[{key:'d', kind:'tex'}, {key:'fig', kind:'figure'}];   // documents/state.ts (DOC_KIND comes with the closed tables)
 const movingPin=()=>null;   // no badge is under a hand here (pdf/input-selection.ts)
 const drawPageVerdicts=()=>{}, isShownOnLine=()=>false;   // no page verdict line on this document (verdict/flow-line.ts)
 const isMarkdownDoc=()=>false;   // and it has pages (documents/state.ts)
@@ -72,6 +73,8 @@ class MarkPieces(unittest.TestCase):
                         "pinPlace",
                         "isPiece",
                         "pinPieces",
+                        "docInfo",
+                        "buildsFromSource",
                         "pastPlace",
                         "isElementLost",
                         "isEstimated",
@@ -177,15 +180,19 @@ class MarkPieces(unittest.TestCase):
         self.assertEqual([(mark["cls"], mark["box"]) for mark in drawn], [("mark rv", ["25%", "75%", "50%", "6.25%"])])
 
     def test_a_region_or_figure_pin_without_boxes_is_still_drawn_as_an_estimate(self):
-        """A region pin has no line range and a figure pin's mark comes from its element: neither is a line pin whose
-        lines could not be placed, so an estimated one keeps its dotted box where it was pinned."""
+        """A region pin has no line range, a figure pin's mark comes from its element, and a figure document's pin on
+        its drawing script's lines never had boxes to lose: none of them is a LaTeX line pin whose lines could not be
+        placed, so an estimated one keeps its dotted box where it was pinned."""
         drawn = self.draw(
             [
                 {"id": 4, "page": 1, "frac": [0.25, 0.75, 0.5, 0.0625], "pdf": "/ms/review.pdf", "est": True},
                 {**self.lines_pin(id=5, est=True), "el": {"id": "cell", "path": ["cell"]}},
+                {**self.lines_pin(id=6, est=True), "doc": "fig", "file": "draw.py"},
             ]
         )
-        self.assertEqual([(mark["pin"], mark["cls"]) for mark in drawn], [("4", "mark est"), ("5", "mark est")])
+        self.assertEqual(
+            [(mark["pin"], mark["cls"]) for mark in drawn], [("4", "mark est"), ("5", "mark est"), ("6", "mark est")]
+        )
 
     def test_a_figure_pin_is_drawn_from_its_element_mark_alone(self):
         """A figure pin carries mark/mark_page and no boxes: it is drawn as one mark where the server found its element,

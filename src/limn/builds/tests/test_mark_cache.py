@@ -251,7 +251,7 @@ class EditedManuscriptStillHits(unittest.TestCase):
         asked for each pin's range in turn."""
         asker = self.queries.boxes(self.ms, 150)
         self.assertIsNotNone(asker)
-        return [asker(str(self.main), lo, hi) for lo, hi in pins]
+        return [asker(str(self.main), lo, hi, lambda _lines: True) for lo, hi in pins]
 
     def test_an_edit_outside_both_ranges_runs_no_second_process(self):
         """A line below both pins reworded: the pins' numbers do not move, the lines of the build they stand on do
@@ -280,3 +280,32 @@ class EditedManuscriptStillHits(unittest.TestCase):
         self.assertEqual(moved, first)
         self.assertEqual(self.calls, asked)
         self.assertEqual(self.cache.held(), 2)
+
+
+class CallersCheckOnTheLinesMeasured(EditedManuscriptStillHits):
+    """The caller's check (limn.pins.needs.LinesHold) runs on the file's lines as the answer read them, before anything
+    is measured: the listing checks there that a stored pin's anchor still stands on its lines, and the check and the
+    mark must see one version of the file - an edit between two reads could pass one paragraph's anchor and measure
+    another's lines."""
+
+    def test_the_check_sees_the_lines_the_answer_measures(self):
+        """The check is handed main.tex as it is now, the text the range is then measured on - also after an edit."""
+        seen = []
+        with self.viewed():
+            asker = self.queries.boxes(self.ms, 150)
+            self.assertTrue(asker(str(self.main), 4, 5, lambda lines: seen.append(list(lines)) or True))
+            edited = "% added\n" + TEX
+            self.main.write_text(edited, encoding="utf-8")
+            again = self.queries.boxes(self.ms, 150)
+            self.assertTrue(again(str(self.main), 5, 6, lambda lines: seen.append(list(lines)) or True))
+        self.assertEqual(seen, [TEX.splitlines(), edited.splitlines()])
+
+    def test_a_check_that_says_no_measures_nothing(self):
+        """No answer, no SyncTeX process and nothing kept when the check says no; a later range of the same file that
+        passes is still measured from the one read."""
+        with self.viewed():
+            asker = self.queries.boxes(self.ms, 150)
+            self.assertEqual(asker(str(self.main), 4, 5, lambda _lines: False), ())
+            self.assertEqual((self.calls, self.cache.held()), ([], 0))
+            self.assertTrue(asker(str(self.main), 8, 9, lambda _lines: True))
+        self.assertEqual(sorted(self.calls), [8, 9])

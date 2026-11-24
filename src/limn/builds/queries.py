@@ -18,6 +18,7 @@ from limn.builds.contracts import (
     ElementPosition,
     ElementSelection,
     Frac,
+    LinesHold,
     MarkBinding,
     MarkBoxes,
     MarkComputation,
@@ -391,28 +392,32 @@ class BuildQueries:
             return None
         pdf = artifacts.cur_pdf(doc, pages)
         cache, compute = self.marks(), self.compute_marks
-        askers: dict[str, MarkBinding | None] = {}
+        askers: dict[str, tuple[Sequence[str], MarkBinding] | None] = {}
 
-        def bind(file: str) -> MarkBinding | None:
-            """The computation bound to that file's two line lists, read once for this answer; None when the build
-            kept no record of the file or the file itself cannot be read as text."""
+        def bind(file: str) -> tuple[Sequence[str], MarkBinding] | None:
+            """The file as it is today and the computation bound to that file's two line lists, read once for this
+            answer; None when the build kept no record of the file or the file itself cannot be read as text."""
             key = built_source.source_key(doc.src, Path(file))
             built = None if key is None else built_source.built_lines(pages, key)
             if key is None or built is None:
                 return None
             raw = built_source.read_below(doc.src, key, built_source.FILE_MAX_BYTES)
             now = None if raw is None else built_source.text_lines(raw)
-            return None if now is None else compute(doc, Path(file), built, now, pdf, sizes)
+            return None if now is None else (now, compute(doc, Path(file), built, now, pdf, sizes))
 
-        def answer(file: str, lo: int, hi: int) -> MarkPieces:
-            """The run's answer for one range: the lines of the build that range is, then the cache's answer for
-            those lines, computed only where it has none."""
+        def answer(file: str, lo: int, hi: int, holds: LinesHold) -> MarkPieces:
+            """The run's answer for one range: nothing unless the caller's check holds for the file's lines as this
+            answer read them - the same lines the range is measured on, so the check and the mark never see two
+            versions of the file - then the lines of the build that range is, then the cache's answer for those
+            lines, computed only where it has none."""
             if file not in askers:
                 askers[file] = bind(file)
-            asker = askers[file]
-            if asker is None:
+            bound = askers[file]
+            if bound is None:
                 return ()
-            in_build, pieces = asker
+            now, (in_build, pieces) = bound
+            if not holds(now):
+                return ()
             found = in_build(lo, hi)
             if found is None:
                 return ()

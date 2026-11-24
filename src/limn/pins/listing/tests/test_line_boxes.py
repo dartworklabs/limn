@@ -337,8 +337,8 @@ class StoredLinesThatNoLongerHoldThePin(ListingBase):
         self.assertEqual(self.calls, [])
 
     def test_a_file_that_cannot_be_read_gives_no_mark(self):
-        """A manuscript that is no longer UTF-8 text cannot confirm any pin's text is on its lines: no mark, and no
-        line asked about."""
+        """A manuscript that is no longer UTF-8 text: the one read the mark and its anchor check share fails, so there
+        is no mark and no line asked about."""
         self.keep_built_source()
         pid = self.add(8, 9)
         self.main.write_bytes(TEX.encode("utf-8") + b"\xff\xfe broken\n")
@@ -346,27 +346,3 @@ class StoredLinesThatNoLongerHoldThePin(ListingBase):
             pin = self.listed()[pid]
         self.assertNotIn("boxes", pin)
         self.assertEqual(self.calls, [])
-
-
-class CurrentLinesOfOneComputation(Base):
-    """PinPlaces.current_lines - the lines a listing checks each pin's anchor against - reads each file once for one
-    computation and answers None for a file it cannot confirm."""
-
-    def test_one_computation_reads_a_file_once_and_a_fresh_one_reads_it_again(self):
-        """Two records naming main.tex share one read: an edit after the first answer is not seen by the same value,
-        and the next computation (a new places()) sees the file as it is then."""
-        first, second = self.pin(self.add(4, 5)), self.pin(self.add(8, 9))
-        places = ps.APP.places()
-        before = places.current_lines(first)
-        self.main.write_text("Changed.\n", encoding="utf-8")
-        self.assertEqual(places.current_lines(second), before)
-        self.assertEqual(before[3], "First paragraph line one about rarewordalpha.")
-        self.assertEqual(ps.APP.places().current_lines(second), ("Changed.",))
-
-    def test_a_file_that_is_gone_or_not_text_is_none(self):
-        """A record whose file is no longer in the manuscript, and one whose file is not UTF-8, answer None."""
-        record = self.pin(self.add(4, 5))
-        self.main.write_bytes(b"\xff\xfe")
-        self.assertIsNone(ps.APP.places().current_lines(record))
-        self.main.unlink()
-        self.assertIsNone(ps.APP.places().current_lines(record))

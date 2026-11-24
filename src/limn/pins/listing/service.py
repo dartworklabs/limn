@@ -27,11 +27,6 @@ class Places(Protocol):
         """One Trash entry's record with its current file path exposed to the API: no computed pin field."""
         ...
 
-    def current_lines(self, record: Record) -> Sequence[str] | None:
-        """The norm()-ed lines of the file a line pin's file is found at now, read once per file; None when it is not
-        located or cannot be read."""
-        ...
-
     def overlaps_by_id(self, pins: Sequence[Pin]) -> dict[int, list[Json]]:
         """Overlap relationships computed over all live pins."""
         ...
@@ -107,7 +102,6 @@ class PinListing:
             self.deps.element_follower,
             places.superseded_by_id(pins),
             self.deps.line_boxes,
-            places.current_lines,
         )
 
     def list_payload(self, allp: bool, doc_key: str | None = None) -> list[Json]:
