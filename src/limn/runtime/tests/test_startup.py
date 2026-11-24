@@ -300,6 +300,31 @@ class AccessLog(unittest.TestCase):
         self.assertEqual(len(startup.access_log_lines(options(), 0, False, "managed", frozenset())), 2)  # no warning
         self.assertIn("access.json unusable", startup.access_log_lines(options(), 0, False, "unusable", frozenset())[0])
 
+    def test_allow_list_with_no_admissible_login_warns_and_names_the_entries(self):
+        """An --allow whose every entry valid_login refuses admits nobody: one warning line names them, sorted."""
+        # "a@example.com b@example.com" is the space-separated typo (one entry); "local" and "agent:x" are reserved.
+        allow = frozenset({"a@example.com b@example.com", "local", "agent:x"})
+        lines = startup.access_log_lines(options(), 0, False, "not-managed", allow)
+        self.assertIn(
+            "warning     --allow holds no login that can be admitted (rejected: "
+            "'a@example.com b@example.com', 'agent:x', 'local') - the list admits nobody",
+            lines,
+        )
+        self.assertEqual(sum("--allow holds no login" in line for line in lines), 1)
+
+    def test_allow_list_with_one_admissible_login_or_none_at_all_is_quiet(self):
+        """One good entry among bad ones is a partly usable list, and an empty list is the open default: no warning."""
+        for allow in (frozenset({"a@example.com", "local"}), frozenset({"alice@exmaple", "com"}), frozenset()):
+            lines = startup.access_log_lines(options(), 0, False, "not-managed", allow)
+            self.assertFalse(any("--allow holds no login" in line for line in lines), allow)
+
+    def test_managed_or_unusable_access_does_not_warn_about_an_ignored_allow_list(self):
+        """access.json decides there, not --allow: the managed 'ignored' warning is the only one, and unusable adds none."""
+        allow = frozenset({"local"})
+        for managed in ("managed", "unusable"):
+            lines = startup.access_log_lines(options(), 0, False, managed, allow)
+            self.assertFalse(any("--allow holds no login" in line for line in lines), managed)
+
     def test_insecure_and_tailnet_warnings(self):
         """The loud insecure warning, the local owner, and the tailnet-agent warning."""
         lines = startup.access_log_lines(
