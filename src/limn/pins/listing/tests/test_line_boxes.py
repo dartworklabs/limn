@@ -12,6 +12,8 @@ Run: uv run pytest -q src/limn/pins/listing/tests/test_line_boxes.py
 """
 
 import json
+import os
+import time
 from unittest import mock
 
 from limn.builds import built_source
@@ -273,3 +275,98 @@ class OtherPinsOnTheList(ListingBase):
         self.assertEqual(len(listed), 4)
         self.assertEqual([p["id"] for p in listed.values() if "boxes" in p], [])
         self.assertEqual(self.calls, [])
+
+
+# Boxes for the lines a build read: the first paragraph (L4-L5) and the body paragraph (L8-L9) of the fixture.
+BODY_BOXES = {line: (1, 60.0, 100.0 + 16.0 * line, 300.0, 10.0) for line in (4, 5, 8, 9)}
+
+
+class StoredLinesThatNoLongerHoldThePin(ListingBase):
+    """A stored pin's mark is measured only while its anchor stands on its stored lines (#547). Line matching follows
+    open pins alone and a lost anchor keeps its old numbers, so after an edit a closed or lost pin's lo..hi names the
+    text that moved into its place - text the build also read, so the range stands whole there and would be measured
+    as the pin's. The listing checks the anchor first and asks nothing for such a pin."""
+
+    def shift(self, lines, edit=None):
+        """Insert lines before L4 (and apply edit to the result), then let the run's upkeep re-match the open pins, as
+        it does after any manuscript edit (the build stays the one that read the fixture)."""
+        text = TEX.splitlines()
+        text[3:3] = lines
+        if edit is not None:
+            text = edit(text)
+        self.main.write_text("\n".join(text) + "\n", encoding="utf-8")
+        os.utime(self.main, (time.time() + 5, time.time() + 5))
+        ps.APP.assembly.pins.startup.maintain()
+
+    def close(self, pid):
+        """Close pin pid as the local agent does: it awaits review."""
+        code, _, body = split_resp(self.talk(req("POST", "/api/pins/%d/close" % pid)))
+        self.assertEqual(code, 200, body)
+
+    def test_a_closed_pin_loses_its_mark_when_its_text_moves_away(self):
+        """Three lines added above the body paragraph after one of two pins on it was closed: the open pin follows to
+        L11-L12 and keeps the mark of its own text, while the closed pin's stored L8-L9 now hold the first paragraph's
+        second line and a blank - read by the build as L5-L6 - so it gets no mark, and L5 is never asked about."""
+        self.keep_built_source()
+        open_pid, closed_pid = self.add(8, 9), self.add(8, 9)
+        self.close(closed_pid)
+        self.shift(["inserted 1", "inserted 2", "inserted 3"])
+        with self.viewed(BODY_BOXES):
+            listed = self.listed()
+        self.assertEqual((listed[open_pid]["lo"], listed[open_pid]["sync"]), (11, "moved +3"))
+        self.assertIn("boxes", listed[open_pid])
+        self.assertEqual((listed[closed_pid]["state"], listed[closed_pid]["lo"]), ("review", 8))
+        self.assertNotIn("boxes", listed[closed_pid])
+        self.assertEqual(sorted({line for _, line in self.calls}), [8, 9])
+
+    def test_a_lost_open_pin_loses_its_mark(self):
+        """Lines added above and the pin's own first line rewritten: line matching cannot find the head, marks the pin
+        lost and keeps L8-L9, which now hold the first paragraph's text. No mark is measured for those numbers."""
+        self.keep_built_source()
+        pid = self.add(8, 9)
+
+        def rewrite(text):
+            """Replace the body paragraph's first line with new words."""
+            return [("A sentence nobody pinned." if line == "Body line seven betaunique." else line) for line in text]
+
+        self.shift(["inserted 1", "inserted 2", "inserted 3"], rewrite)
+        with self.viewed(BODY_BOXES):
+            pin = self.listed()[pid]
+        self.assertEqual((pin["lo"], pin["hi"], pin["sync"], pin["stale"]), (8, 9, "lost", True))
+        self.assertNotIn("boxes", pin)
+        self.assertEqual(self.calls, [])
+
+    def test_a_file_that_cannot_be_read_gives_no_mark(self):
+        """A manuscript that is no longer UTF-8 text cannot confirm any pin's text is on its lines: no mark, and no
+        line asked about."""
+        self.keep_built_source()
+        pid = self.add(8, 9)
+        self.main.write_bytes(TEX.encode("utf-8") + b"\xff\xfe broken\n")
+        with self.viewed(BODY_BOXES):
+            pin = self.listed()[pid]
+        self.assertNotIn("boxes", pin)
+        self.assertEqual(self.calls, [])
+
+
+class CurrentLinesOfOneComputation(Base):
+    """PinPlaces.current_lines - the lines a listing checks each pin's anchor against - reads each file once for one
+    computation and answers None for a file it cannot confirm."""
+
+    def test_one_computation_reads_a_file_once_and_a_fresh_one_reads_it_again(self):
+        """Two records naming main.tex share one read: an edit after the first answer is not seen by the same value,
+        and the next computation (a new places()) sees the file as it is then."""
+        first, second = self.pin(self.add(4, 5)), self.pin(self.add(8, 9))
+        places = ps.APP.places()
+        before = places.current_lines(first)
+        self.main.write_text("Changed.\n", encoding="utf-8")
+        self.assertEqual(places.current_lines(second), before)
+        self.assertEqual(before[3], "First paragraph line one about rarewordalpha.")
+        self.assertEqual(ps.APP.places().current_lines(second), ("Changed.",))
+
+    def test_a_file_that_is_gone_or_not_text_is_none(self):
+        """A record whose file is no longer in the manuscript, and one whose file is not UTF-8, answer None."""
+        record = self.pin(self.add(4, 5))
+        self.main.write_bytes(b"\xff\xfe")
+        self.assertIsNone(ps.APP.places().current_lines(record))
+        self.main.unlink()
+        self.assertIsNone(ps.APP.places().current_lines(record))

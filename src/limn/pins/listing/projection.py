@@ -27,7 +27,7 @@ from typing import Any, TypeAlias
 
 from limn.pins.element import element_of
 from limn.pins.idem import IDEM_FIELD
-from limn.pins.location.mapping import mark_wire
+from limn.pins.location.mapping import anchor_stands, mark_wire
 from limn.pins.location.position import EstContext, epoch, pin_est
 from limn.pins.mentions import addressed_to, fyi_mentions_to
 from limn.pins.model import OpenPin, StateName, TrashedPin, parse_pin, state_of
@@ -146,19 +146,33 @@ def _shown_file(value: object) -> str | None:
             return None
 
 
-def line_marks(shown: Json, boxes: BoxesFor | None) -> Json:
-    """Where the lines of line pin `shown` print on the build its document has on screen: {} unless boxes answers
-    pieces for the file the record names and its lo..hi; else {"boxes": [...]} as mark_wire shapes them.
+def line_marks(anchor: Row | None, shown: Json, boxes: BoxesFor | None, lines: Sequence[str] | None) -> Json:
+    """Where the lines of line pin `shown` print on the build its document has on screen: {} unless its stored anchor
+    (the parsed record's, None when it has none) still stands on its lo..hi in lines - the norm()-ed lines of the file the answer names, as they are now - and boxes answers
+    pieces for that file and range; else {"boxes": [...]} as mark_wire shapes them.
+
+    The anchor is asked first (limn.pins.location.mapping.anchor_stands: its head at lo, its tail at hi). Line matching
+    follows open pins alone and a lost anchor keeps its old numbers, so a closed or lost pin's lo..hi can name text it
+    never held, and the mark of those numbers would sit on that text (#547). A pin whose text is not on its lines - or
+    whose file's lines are not known (lines None) - gets no key, and its range is never asked about: the forward pass
+    costs a process per line. Every state follows this one rule.
 
     The file is the one the answer itself names, not the one the record stores: a pin written in another checkout
     carries that checkout's path, and the mark must describe the file this answer points the reader at. A range with
     no pieces leaves the key out rather than carrying [], the same rule as a pick's default rung and a snippet's
     (limn.pins.location.mapping.mark_wire). Never stored; never changes shown."""
     file, lo, hi = _shown_file(shown.get("file")), shown.get("lo"), shown.get("hi")
-    if boxes is None or file is None or not is_int(lo) or not is_int(hi):
+    if boxes is None or lines is None or file is None or not is_int(lo) or not is_int(hi):
+        return {}
+    if not anchor_stands(anchor, lo, hi, lines):
         return {}
     pieces = boxes(file, lo, hi)
     return {"boxes": mark_wire(pieces)} if pieces else {}
+
+
+def no_current_lines(_r: Row) -> None:
+    """No file is read: nothing confirms a pin's text is on its lines, so no pin gets a mark of them."""
+    return None
 
 
 def element_marks(r: Row, fmap: FollowElement | None) -> Json:
@@ -191,12 +205,13 @@ def pin_view(
     fmap: FollowElement | None = None,
     superseded_by: int | None = None,
     boxes: BoxesFor | None = None,
+    lines: Sequence[str] | None = None,
 ) -> Json:
     """One GET /api/pins record: shown (r as the API shows it) followed by rel, est, doc, state, addressed and fyi, in
     that order, then superseded_by - only when a newer verdict pin supersedes this one, the number of the pin that is
     its target's current verdict (limn.pins.verdict.superseded_by) - then, for a figure pin with an element on fmap,
-    its document's current map, mark, mark_page and el_sync (element_marks), and for a line pin whose lines boxes
-    answers for, `boxes` (line_marks). The two never meet: a figure's mark comes from its element map and a line pin's
+    its document's current map, mark, mark_page and el_sync (element_marks), and for a line pin whose anchor stands on
+    its lines in lines - its file's norm()-ed lines now - and whose lines boxes answers for, `boxes` (line_marks). The two never meet: a figure's mark comes from its element map and a line pin's
     from where its lines print. A claim that holds at epoch now but was
     written before claim_ts existed also gets claim_ts, its start epoch read from claimed_at (the viewer's "since
     20:02 (23 min in)"); none when claimed_at is not a readable time. A suggest_state that shown carries
@@ -207,7 +222,7 @@ def pin_view(
     if superseded_by is not None:
         rec["superseded_by"] = superseded_by
     rec.update(element_marks(r, fmap))
-    rec.update(line_marks(shown, boxes))
+    rec.update(line_marks(pin.core.anchor, shown, boxes, lines))
     if claim_holds(r, now) and not is_num(r.get("claim_ts")):
         ts = epoch(r.get("claimed_at"))
         if ts is not None:
@@ -228,6 +243,7 @@ def pins_payload(
     figure_map: Callable[[str], FollowElement | None] = no_figure_maps,
     superseded: Mapping[int, int] | None = None,
     line_boxes: Callable[[str], BoxesFor | None] = no_line_boxes,
+    current_lines: Callable[[Row], Sequence[str] | None] = no_current_lines,
 ) -> list[Json]:
     """GET /api/pins: the open pins of rows in row order (every pin when allp), each as pin_view() gives it.
 
@@ -241,7 +257,10 @@ def pins_payload(
     it is asked at most once per document, and only for a document with a listed pin that carries an el.
     line_boxes binds a build-owned "where do these lines print" query by document key, never a PDF or a page folder;
     it is asked at most once per document too, and only for a document with a listed line pin that is not a figure's
-    element - the answer costs one process per line of text, and this route answers every open pin at once."""
+    element - the answer costs one process per line of text, and this route answers every open pin at once.
+    current_lines gives the norm()-ed lines of the file a record's file is found at now, or None when it is not located
+    or cannot be read; it is asked only for a pin whose document has an asker, since only that pin's anchor is checked
+    against its lines before a mark is measured (line_marks). The caller reads each file once per call."""
     ctxs: dict[str, EstContext | None] = {}
     maps: dict[str, FollowElement | None] = {}
     askers: dict[str, BoxesFor | None] = {}
@@ -253,7 +272,7 @@ def pins_payload(
         if k not in ctxs:
             ctxs[k] = est_context(k)
         ctx = ctxs[k]
-        fmap = ask = None
+        fmap = ask = lines = None
         if element_of(r.get("el")) is not None:
             if k not in maps:
                 maps[k] = figure_map(k)
@@ -262,8 +281,11 @@ def pins_payload(
             if k not in askers:
                 askers[k] = line_boxes(k)
             ask = askers[k]
+            lines = current_lines(r) if ask is not None else None
         est = pin_est(r, ctx) if ctx is not None else True
-        out.append(pin_view(r, show(r), rel.get(r["id"], []), est, k, now, fmap, (superseded or {}).get(r["id"]), ask))
+        out.append(
+            pin_view(r, show(r), rel.get(r["id"], []), est, k, now, fmap, (superseded or {}).get(r["id"]), ask, lines)
+        )
     return out
 
 

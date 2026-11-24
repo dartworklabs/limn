@@ -443,7 +443,20 @@ class FigurePayload(unittest.TestCase):
         self.assertEqual(list(rec), ["id", "el", "rel", "est", "doc", "state", "addressed", "fyi"])
 
 
-LINE = {"id": 1, "doc": "ms", "file": "/ms/main.tex", "lo": 4, "hi": 5, "page": 1}
+HEAD, TAIL = "The pin's first line of text.", "The pin's last line of text."
+LINE = {
+    "id": 1,
+    "doc": "ms",
+    "file": "/ms/main.tex",
+    "lo": 4,
+    "hi": 5,
+    "page": 1,
+    "anchor": {"head": HEAD, "tail": TAIL, "head_off": 0, "tail_off": 0},
+}
+# main.tex as it is now, norm()-ed: the pin's text still on its stored lines 4-5.
+NOW_LINES = ("one", "two", "three", HEAD, TAIL, "six")
+# The same file after three lines were added above: lines 4-5 now hold text the pin never held.
+SHIFTED = ("new 1", "new 2", "new 3", *NOW_LINES)
 PIECES = ((1, (0.1, 0.2, 0.3, 0.4)), (2, (0.0, 0.5, 1.0, 0.25)))
 WIRE = [{"page": 1, "frac": [0.1, 0.2, 0.3, 0.4]}, {"page": 2, "frac": [0.0, 0.5, 1.0, 0.25]}]
 
@@ -451,6 +464,11 @@ WIRE = [{"page": 1, "frac": [0.1, 0.2, 0.3, 0.4]}, {"page": 2, "frac": [0.0, 0.5
 def asker(pieces=PIECES, want=("/ms/main.tex", 4, 5)):
     """An asker that answers pieces for exactly the file and range `want`, and nothing for any other."""
     return lambda file, lo, hi: pieces if (file, lo, hi) == want else ()
+
+
+def lines_now(lines=NOW_LINES):
+    """A stand-in for the run's current_lines: every record's file reads as lines."""
+    return lambda r: lines
 
 
 class LineBoxPayload(unittest.TestCase):
@@ -467,14 +485,32 @@ class LineBoxPayload(unittest.TestCase):
             asked.append(key)
             return asker()
 
-        out = pins_payload([LINE], False, {}, shown, lambda r: r["doc"], lambda k: CUR, NOW, line_boxes=line_boxes)
+        out = pins_payload(
+            [LINE],
+            False,
+            {},
+            shown,
+            lambda r: r["doc"],
+            lambda k: CUR,
+            NOW,
+            line_boxes=line_boxes,
+            current_lines=lines_now(),
+        )
         self.assertEqual(asked, ["ms"])
         self.assertEqual(out[0]["boxes"], WIRE)
 
     def test_an_asker_with_no_pieces_leaves_the_key_out(self):
         """An absent key says "no mark for this range"; [] would say "a mark of no pieces"."""
         out = pins_payload(
-            [LINE], False, {}, shown, lambda r: r["doc"], lambda k: CUR, NOW, line_boxes=lambda k: asker(())
+            [LINE],
+            False,
+            {},
+            shown,
+            lambda r: r["doc"],
+            lambda k: CUR,
+            NOW,
+            line_boxes=lambda k: asker(()),
+            current_lines=lines_now(),
         )
         self.assertNotIn("boxes", out[0])
 
@@ -496,7 +532,17 @@ class LineBoxPayload(unittest.TestCase):
             asked.append(key)
             return asker() if key == "ms" else None
 
-        out = pins_payload(rows, False, {}, shown, lambda r: r["doc"], lambda k: CUR, NOW, line_boxes=line_boxes)
+        out = pins_payload(
+            rows,
+            False,
+            {},
+            shown,
+            lambda r: r["doc"],
+            lambda k: CUR,
+            NOW,
+            line_boxes=line_boxes,
+            current_lines=lines_now(),
+        )
         self.assertEqual(asked, ["ms", "fig"])
         self.assertEqual([("boxes" in o) for o in out], [True, False, False, False, False])
 
@@ -528,7 +574,7 @@ class LineBoxPayload(unittest.TestCase):
         r = dict(LINE)
         show = shown(r)
         before = (json.dumps(r, sort_keys=True), json.dumps(show, sort_keys=True))
-        rec = pin_view(r, show, [], False, "ms", NOW, boxes=asker())
+        rec = pin_view(r, show, [], False, "ms", NOW, boxes=asker(), lines=NOW_LINES)
         self.assertEqual(rec["boxes"], WIRE)
         self.assertEqual((json.dumps(r, sort_keys=True), json.dumps(show, sort_keys=True)), before)
 
@@ -536,8 +582,123 @@ class LineBoxPayload(unittest.TestCase):
         """public_record replaces a line pin's stored file with where this machine holds it now (ADR-0006), and the
         mark must describe that file - a stored path from another checkout would answer another file's lines."""
         r = dict(LINE, file="/old/checkout/main.tex")
-        rec = pin_view(r, dict(shown(r), file="/ms/main.tex"), [], False, "ms", NOW, boxes=asker())
+        rec = pin_view(r, dict(shown(r), file="/ms/main.tex"), [], False, "ms", NOW, boxes=asker(), lines=NOW_LINES)
         self.assertEqual(rec["boxes"], WIRE)
+
+
+class LineBoxesWhereTheAnchorStands(unittest.TestCase):
+    """A stored pin's mark is measured only where its anchor still stands on its stored lines (head at lo, tail at hi,
+    mapping.anchor_stands): line matching follows open pins alone and a lost anchor keeps its old numbers, so a closed
+    or lost pin's lo..hi can name text it never held, and the mark of those numbers would cover that text (#547).
+    Every state follows the one rule; a pin that does not pass gets no `boxes` and its range is never asked about."""
+
+    def listed(self, rows, lines=NOW_LINES, asked=None, line_asked=None):
+        """pins_payload over rows with every pin listed (all=1), an asker for ms that records the ranges asked for
+        and a current_lines that records the pins it reads for."""
+        asked = [] if asked is None else asked
+        line_asked = [] if line_asked is None else line_asked
+
+        def ask(file, lo, hi):
+            """Record the range; answer PIECES for any."""
+            asked.append((file, lo, hi))
+            return PIECES
+
+        def current(r):
+            """Record the pin; its file reads as lines."""
+            line_asked.append(r["id"])
+            return lines
+
+        return pins_payload(
+            rows,
+            True,
+            {},
+            shown,
+            lambda r: r["doc"],
+            lambda k: CUR,
+            NOW,
+            line_boxes=lambda k: ask if k == "ms" else None,
+            current_lines=current,
+        )
+
+    def test_every_state_keeps_its_mark_while_its_text_is_on_its_lines(self):
+        """Open, awaiting review and done: the anchor stands, so each carries the pieces of its range."""
+        rows = [LINE, {**LINE, "id": 2, "done": True, "review": True}, {**LINE, "id": 3, "done": True}]
+        out = self.listed(rows)
+        self.assertEqual(
+            [(o["state"], o.get("boxes")) for o in out], [("open", WIRE), ("review", WIRE), ("done", WIRE)]
+        )
+
+    def test_a_closed_pin_whose_lines_moved_gets_no_boxes_and_asks_nothing(self):
+        """Three lines added above after the pin was closed: its stored 4-5 now hold other text, and line matching
+        does not follow a closed pin, so neither the review nor the done pin carries a mark and no range is asked."""
+        asked = []
+        rows = [{**LINE, "id": 2, "done": True, "review": True}, {**LINE, "id": 3, "done": True}]
+        out = self.listed(rows, SHIFTED, asked)
+        self.assertEqual([("boxes" in o) for o in out], [False, False])
+        self.assertEqual(asked, [])
+
+    def test_a_closed_pin_whose_head_line_was_rewritten_gets_no_boxes(self):
+        """The paragraph's first sentence was rewritten after close, on the same lines: the tail is where hi says but
+        the range no longer starts with the pin's text."""
+        rewritten = ("one", "two", "three", "A different first line.", TAIL, "six")
+        out = self.listed([{**LINE, "done": True, "review": True}], rewritten)
+        self.assertNotIn("boxes", out[0])
+
+    def test_a_lost_open_pin_gets_no_boxes(self):
+        """Line matching could not find the head and kept the old numbers (stale, sync lost): the rule is the one the
+        closed pins follow, with nothing special for the state."""
+        lost = {**LINE, "stale": True, "sync": "lost"}
+        rewritten = ("one", "two", "three", "Inserted text.", "More inserted.", "six")
+        out = self.listed([lost], rewritten)
+        self.assertNotIn("boxes", out[0])
+        self.assertTrue(out[0]["est"])
+
+    def test_a_repeated_head_on_the_stored_line_is_not_enough(self):
+        """A head line that recurs in the manuscript lands on the stored lo while another paragraph's tail follows it:
+        the mark would cover that other paragraph, so the tail must stand too."""
+        twin = ("one", "two", "three", HEAD, "Some other paragraph's end.", "six")
+        out = self.listed([{**LINE, "done": True, "review": True}], twin)
+        self.assertNotIn("boxes", out[0])
+
+    def test_a_pin_without_an_anchor_gets_no_boxes(self):
+        """A record with no anchor, or an empty one (a range of blank lines), has nothing that says its lines are its
+        text."""
+        bare = {k: v for k, v in LINE.items() if k != "anchor"}
+        out = self.listed([bare, {**LINE, "id": 2, "anchor": {}, "done": True}])
+        self.assertEqual([("boxes" in o) for o in out], [False, False])
+
+    def test_a_file_that_is_not_located_or_read_gets_no_boxes(self):
+        """current_lines answers None when the pin's file is not found under the manuscript or cannot be read: what
+        cannot be confirmed does not stand, and no range is asked about."""
+        asked = []
+        out = self.listed([LINE], None, asked)
+        self.assertNotIn("boxes", out[0])
+        self.assertEqual(asked, [])
+
+    def test_the_file_is_read_only_for_line_pins_of_a_document_that_prints_them(self):
+        """A figure's element pin, a region pin, a figure script's lines and a line pin of a document with no asker
+        are never read for: only the pins whose boxes would be asked about need their file's lines."""
+        line_asked = []
+        rows = [
+            LINE,
+            {"id": 3, "doc": "fig", "page": 1, "file": "/ms/draw.py", "lo": 4, "hi": 5, "el": EL},
+            {"id": 4, "doc": "rv", "page": 1, "frac": [0.1, 0.2, 0.3, 0.4]},
+            {"id": 5, "doc": "fig", "page": 1, "file": "/ms/draw.py", "lo": 20, "hi": 22},
+        ]
+        self.listed(rows, line_asked=line_asked)
+        self.assertEqual(line_asked, [1])
+
+    def test_the_default_reads_no_file_and_gives_no_boxes(self):
+        """Without current_lines nothing confirms a pin's text is on its lines, so an asker alone draws no mark."""
+        out = pins_payload(
+            [LINE], False, {}, shown, lambda r: r["doc"], lambda k: CUR, NOW, line_boxes=lambda k: asker()
+        )
+        self.assertNotIn("boxes", out[0])
+
+    def test_a_pin_view_without_lines_gives_no_boxes(self):
+        """pin_view is told the file's lines by its caller; given none, it asks nothing and adds no key."""
+        rec = pin_view(LINE, shown(LINE), [], False, "ms", NOW, boxes=asker())
+        self.assertNotIn("boxes", rec)
 
 
 # ---------------------------------------------------------------- through server.py's wiring

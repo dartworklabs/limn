@@ -27,6 +27,11 @@ class Places(Protocol):
         """One Trash entry's record with its current file path exposed to the API: no computed pin field."""
         ...
 
+    def current_lines(self, record: Record) -> Sequence[str] | None:
+        """The norm()-ed lines of the file a line pin's file is found at now, read once per file; None when it is not
+        located or cannot be read."""
+        ...
+
     def overlaps_by_id(self, pins: Sequence[Pin]) -> dict[int, list[Json]]:
         """Overlap relationships computed over all live pins."""
         ...
@@ -76,8 +81,8 @@ class PinListing:
     trash_days: int
 
     def pins_payload(self, pins: Sequence[Pin], allp: bool) -> list[Json]:
-        """The list with overlap, estimation, figure element positions, line marks and verdict supersession computed
-        over the full live set."""
+        """The list with overlap, estimation, figure element positions, line marks (only where a pin's anchor still
+        stands on its lines) and verdict supersession computed over the full live set."""
         return self._views(pins, [pin.record for pin in pins], allp)
 
     def _views(self, pins: Sequence[Pin], rows: Sequence[Record], allp: bool) -> list[Json]:
@@ -102,6 +107,7 @@ class PinListing:
             self.deps.element_follower,
             places.superseded_by_id(pins),
             self.deps.line_boxes,
+            places.current_lines,
         )
 
     def list_payload(self, allp: bool, doc_key: str | None = None) -> list[Json]:
