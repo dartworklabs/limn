@@ -267,6 +267,7 @@ class PinListVerdicts(unittest.TestCase):
                                 "pinPlace",
                                 "isPiece",
                                 "pinPieces",
+                                "pastPlace",
                                 "isElementLost",
                                 "isEstimated",
                                 "pinState",
