@@ -384,6 +384,10 @@ class TwoDocumentsAtOnce(unittest.TestCase):
         self.assertFalse(worker.is_alive())
 
 
+# When the hang stand-in's child `sleep` would end on its own. The timeout test must come back well before that, which
+# it does only if the timeout killed the whole process group and not just the shell that latexmk stands for.
+HANG_STAND_IN_ENDS = 120
+
 # latexmk stand-in whose behaviour LIMN_TEST_LATEXMK picks: ok (PDF, SyncTeX, clean log), errors (the same with a
 # '! ' line in the log), nopdf (output only), nosynctex (a PDF without SyncTeX) or hang (a child `sleep` that outlasts
 # HANG_STAND_IN_ENDS, so only a timeout that kills the whole process group ends the run sooner).
@@ -392,14 +396,14 @@ for a; do main=$a; done
 stem=${main%.tex}
 echo "latexmk ran $stem"
 case "$LIMN_TEST_LATEXMK" in
-  hang) sleep 120 ;;
+  hang) sleep @HANG@ ;;
   nopdf) exit 12 ;;
   nosynctex) cp "$main" "$stem.pdf" ;;
   errors) cp "$main" "$stem.pdf"; printf 'synctex' > "$stem.synctex.gz"
           printf '! Undefined control sequence.\\nl.3 \\\\foo\\n' > "$stem.log" ;;
   *) cp "$main" "$stem.pdf"; printf 'synctex' > "$stem.synctex.gz"; : > "$stem.log" ;;
 esac
-"""
+""".replace("@HANG@", str(HANG_STAND_IN_ENDS))
 
 # pdftoppm stand-in that fails when LIMN_TEST_PDFTOPPM is "fail", else writes one page's PPM on stdout.
 MODAL_PDFTOPPM = """#!/bin/sh
@@ -409,17 +413,13 @@ printf 'P6\\n2 1\\n255\\n\\377\\377\\377\\0\\0\\0'
 
 
 # The latexmk limit every Outcomes test but the timeout one runs under. It guards against a hang and measures nothing:
-# the stand-ins finish in milliseconds, so only a machine stalled for a full minute would reach it, where the one
-# second it replaces was reached by ordinary load (#532).
+# the stand-ins usually finish in milliseconds, which leaves wide headroom for a busy machine, where the one second it
+# replaces was used up by ordinary load (#532).
 GENEROUS_TIMEOUT = 60
 
 # The limit of the timeout test. Its stand-in outlasts it by far, so the limit always fires first; nothing depends on
 # the stand-in finishing, or even printing, inside it.
 HANG_TIMEOUT = 1
-
-# When the hang stand-in's `sleep 120` would end on its own. The timeout test must come back well before that, which it
-# does only if the timeout killed the whole process group and not just the shell that latexmk stands for.
-HANG_STAND_IN_ENDS = 120
 
 
 class Outcomes(unittest.TestCase):
