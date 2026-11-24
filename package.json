@@ -15,12 +15,12 @@
     "format:check": "prettier --check ."
   },
   "devDependencies": {
-    "eslint": "10.13.0",
+    "eslint": "10.15.0",
     "globals": "17.13.0",
-    "prettier": "3.9.10",
-    "rollup": "4.67.3",
+    "prettier": "3.10.1",
+    "rollup": "4.68.7",
     "typescript": "6.0.3",
     "typescript-7": "npm:typescript@7.0.2",
-    "typescript-eslint": "8.72.1"
+    "typescript-eslint": "8.73.0"
   }
 }
