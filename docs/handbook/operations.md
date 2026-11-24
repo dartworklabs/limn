@@ -101,7 +101,7 @@ uv run pytest -q -rs
 
 **관리 모드에서 `--allow`와 `--members-only`는 무시된다.** 상태 폴더의 `access.json`이 관리 모드를 켜 두었으면 입장은 `people.json`만으로 정해지고 이 두 인자는 판정에 들어오지 않는다. 명단에 줄이 없는 사람은 `--allow`에 있어도 `403`이고, 명단이 비면 아무도 들어오지 못한다. 전환이 설정 파일의 `--allow`·`MEMBERS_ONLY` 키를 지워 주지는 않으므로 그 인자는 그대로 남아 있고 기동 로그가 무시된다고 말한다. 전환 자체는 소유자가 뷰어에서 누르며 판올리기만으로는 일어나지 않는다(§상태 파일 배치, [api.md](api.md) §입장). 출처: [ADR-0055](../adr/0055-access-managed-from-the-viewer.md) D1.
 
-기동 로그에는 `auth` 줄이 찍힌다. 신원 방식, 토큰 수, loopback 에이전트 켬·끔, (loopback 에이전트가 켜져 있으면) tailnet 에이전트 켬·끔, members-only 여부가 이 한 줄에 모인다. 관리 모드면 같은 줄에 `access managed (people.json decides)`가, 쓸 수 없는 `access.json`이면 `access.json unusable (header-identified people refused)`가 붙는다. 관리 모드인데 `--allow`나 `--members-only`가 주어져 있으면 그 아래에 어느 인자가 무시되는지 말하는 `warning` 줄이 한 줄 더 찍힌다.
+기동 로그에는 `auth` 줄이 찍힌다. 신원 방식, 토큰 수, loopback 에이전트 켬·끔, (loopback 에이전트가 켜져 있으면) tailnet 에이전트 켬·끔, members-only 여부가 이 한 줄에 모인다. 관리 모드면 같은 줄에 `access managed (people.json decides)`가, 쓸 수 없는 `access.json`이면 `access.json unusable (header-identified people refused)`가 붙는다. 관리 모드인데 `--allow`나 `--members-only`가 주어져 있으면 그 아래에 어느 인자가 무시되는지 말하는 `warning` 줄이 한 줄 더 찍힌다. 관리 모드가 아닌데 `--allow`가 비어 있지 않고 그 항목이 모두 로그인으로 받아들여지지 않으면(공백이 낀 항목, 예약어 `local`·`agent:…` 등 — 쉼표 대신 공백으로 나눈 오타가 흔하다) `--allow holds no login that can be admitted (rejected: …)` 경고가 한 줄 찍히고 거절된 항목이 나열된다. 그 목록은 아무도 들이지 못하지만 서버는 기동한다. 항목이 하나라도 받아들여지면 경고하지 않고, 관리 모드·읽을 수 없는 `access.json`에서는 `--allow`를 보지 않으므로 이 경고도 없다.
 
 역할은 `people.json`에 사람마다 적는다. 역할별로 할 수 있는 일은 다음과 같다.
 

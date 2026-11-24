@@ -171,7 +171,7 @@ def access_log_lines(
     loopback agent. tokens is the number of valid entries in tokens.json; token_file_present whether
     s.agent_token_file exists (only shown when one is configured). managed is the instance access flag now
     (access.json) and allow the --allow logins: a managed instance says so, and says that --allow and --members-only
-    are ignored when either was given."""
+    are ignored when either was given; an unmanaged one whose --allow holds no valid_login says the list admits nobody."""
     parts: list[str] = [s.auth]
     if s.auth == "local":
         parts.append("owner %s" % local_owner_actor(s.local_user)["login"])
@@ -196,6 +196,13 @@ def access_log_lines(
         out.append(
             "warning     access.json is managed: %s ignored (people.json decides who is admitted)"
             % " and ".join(n for n, given in (("--allow", bool(allow)), ("--members-only", s.members_only)) if given)
+        )
+    elif managed == "not-managed" and allow and not any(valid_login(x) for x in allow):
+        # allow is the normalised --allow set admission reads, so this judges the same entries. Managed and unusable
+        # access.json never consult it. One good entry keeps the list usable, so only an all-rejected list warns.
+        out.append(
+            "warning     --allow holds no login that can be admitted (rejected: %s) - the list admits nobody"
+            % ", ".join(repr(x) for x in sorted(allow))
         )
     if not is_loopback_bind(s.bind):
         out.append(
