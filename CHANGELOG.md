@@ -11,8 +11,9 @@
   listing now checks the pin's anchor against its file as it is now first: its head line must stand at
   `lo + head_off` and its tail line at `hi − tail_off`. A pin that does not pass, has no anchor, or whose file cannot be
   read gets no `boxes` and costs no SyncTeX call. Every state follows the one rule; a closed pin's lines stay the record
-  of when it was closed and are not followed. The viewer shows a line pin without `boxes` whose `est` is true as a
-  **past location** (`과거 위치`) on its card and on the page (ADR-0057). The agent contract is unchanged: no field,
+  of when it was closed and are not followed. The viewer no longer draws a line pin without `boxes` whose `est` is true
+  on the page — the box it was dragged on belongs to an older PDF and may lie on other text — and its card says
+  **past location** (`과거 위치`) instead (ADR-0057). The agent contract is unchanged: no field,
   `est` rule or `pins.md` row changes, and a missing `boxes` was already the answer for a mark that could not be
   measured.
 

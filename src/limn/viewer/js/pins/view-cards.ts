@@ -16,7 +16,7 @@ import { hideTip, tipFollow } from '../platform/tooltip.ts';
 import { canConfirmReview, confirmAccessText, isAgentRole } from '../documents/view-meta.ts';
 import { showSheet } from '../layout/flow.ts';
 import { viaTag } from '../composer/view-levels.ts';
-import { isElementLost, lostElementTag, figureRegionBadge, pinPlace } from '../pdf/view-figure.ts';
+import { isElementLost, lostElementTag, figureRegionBadge, pastPlace, pinPlace } from '../pdf/view-figure.ts';
 import { isMarkdownPin, docInfo, isRegion, pdoc, isViewer } from '../documents/state.ts';
 import { suggestBadge, suggestView } from '../composer/flow-suggest.ts';
 import {
@@ -86,6 +86,12 @@ function card(pin: Pin) {
         )}">${lucideIcon('move-vertical')}${translateTemplate('줄 {delta} 이동', { delta: moved[1] })}</span>`,
       );
   }
+  // A line pin the page does not draw because it could only be where it was pinned (pastPlace): a lost pin's '위치 잃음'
+  // already says more.
+  if (!pin.stale && !isMarkdownPin(pin) && pastPlace(pin))
+    tags.push(
+      html`<span class="badge" data-tip="${translate(TIP_TEXT.past)}">${lucideIcon('square-dashed')}${translate('과거 위치')}</span>`,
+    );
   const lostBadge = lostElementTag(pin);
   if (lostBadge) tags.push(lostBadge); // a figure pin whose element the re-rendered map does not have
   const claimed = claimActive(pin);

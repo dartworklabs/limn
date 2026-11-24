@@ -1558,6 +1558,7 @@ function switchLang(lang) {
 const TIP_TEXT = {
   stale:
     '핀을 찍은 첫 문장이 바뀌거나 지워져 위치를 되찾지 못했습니다. 이미 고쳐졌을 수 있으니 확인한 뒤 완료하거나 [수정] → 위치 다시 잡기를 하세요',
+  past: '원고나 PDF가 바뀐 뒤 이 핀의 줄이 지금 PDF의 어디에 찍히는지 확인하지 못해 쪽 위에 표시하지 않습니다. 줄 범위와 메모로 확인하세요',
   ellost:
     '그림을 다시 그린 뒤 지도에서 이 요소를 찾지 못했습니다(요소 id가 바뀌었거나 지워짐). 표시는 핀을 찍은 때 자리에 그립니다. 이미 고쳐졌을 수 있으니 확인한 뒤 완료하거나 [수정] → 위치 다시 잡기를 하세요',
   n: "누르면 문서에서 이 핀 자리로 갑니다. 에이전트에게는 '#2 처리해줘'처럼 번호로 부르세요. 번호는 다시 쓰이지 않습니다",
@@ -16000,6 +16001,16 @@ function pinPieces(pin) {
   const at = pinPlace(pin);
   return isFrac(at.frac) ? [{ page: at.page, frac: at.frac }] : [];
 }
+// Whether a line pin can only be shown where it was pinned, on an older PDF (docs/handbook/viewer.md §핀 마크의 조각): a
+// pin with a line range and no element that the server gave no boxes, while its mark is an estimate (est). With est
+// false the PDF on screen is the one the pin was dragged on, or one built from the same manuscript, so the dragged box
+// is where the pin's text prints on it. With est true that box may lie on other text, and nothing the server sent says
+// otherwise: its boxes are absent because the stored lines no longer hold the pin's text, or because they could not be
+// measured on this build. Such a pin is not drawn on the page; its card says so (pins/view-cards.ts).
+function pastPlace(pin) {
+  if (typeof pin.lo !== 'number' || typeof pin.hi !== 'number' || pin.el || pin.est !== true) return false;
+  return !(Array.isArray(pin.boxes) && pin.boxes.some(isPiece));
+}
 // Whether a figure pin's element is gone from the current build's map (`el_sync` lost) - shown like a lost line.
 function isElementLost(pin) {
   return !!pin && pin.el_sync === ELEMENT_SYNC.LOST;
@@ -25117,6 +25128,12 @@ function card(pin) {
         )}">${lucideIcon('move-vertical')}${translateTemplate('줄 {delta} 이동', { delta: moved[1] })}</span>`,
       );
   }
+  // A line pin the page does not draw because it could only be where it was pinned (pastPlace): a lost pin's '위치 잃음'
+  // already says more.
+  if (!pin.stale && !isMarkdownPin(pin) && pastPlace(pin))
+    tags.push(
+      html`<span class="badge" data-tip="${translate(TIP_TEXT.past)}">${lucideIcon('square-dashed')}${translate('과거 위치')}</span>`,
+    );
   const lostBadge = lostElementTag(pin);
   if (lostBadge) tags.push(lostBadge); // a figure pin whose element the re-rendered map does not have
   const claimed = claimActive(pin);
@@ -27392,7 +27409,8 @@ let MARK_COVER_TICK = 0;
 // Draws the marks of this document's open and awaiting-review pins, one element per piece of each pin's mark: the boxes
 // the server computed for a LaTeX line pin's range, where a figure pin's element is now, else where the pin was pinned
 // (pinPieces), then decides each badge's side (markBadgeSides) and puts a save's or an append's undo chip back on its
-// mark (drawChips). A pin without a usable box, and a piece on a page that is not on screen, draw nothing.
+// mark (drawChips). A pin without a usable box, a line pin that could only be drawn where it was pinned on an older PDF
+// (pastPlace), and a piece on a page that is not on screen draw nothing.
 /** Draw native, named pin badge buttons at the current mark coordinates, preserving mark and undo-chip geometry. */
 // A pin a page verdict line shows (isShownOnLine) draws no page-size box: the line under its page says it
 // (drawPageVerdicts, first).
@@ -27409,6 +27427,7 @@ function marks() {
   // pinPlace), and a found element is no estimate.
   PINS.concat(REVIEW_ALL.filter((pin) => pdoc(pin) === DOC)).forEach((pin) => {
     if (pinVerdicts().shownOnLine(pin)) return;
+    if (pastPlace(pin)) return; // only where it was pinned on an older PDF, which may be other text: its card says so
     // The pieces come page by page and then down each page, and the pages stand in that order on screen: the first one
     // drawn is this pin's first .mark in the document. That is the piece the number badge goes on - one badge for the
     // pin - and the one every lookup of its mark finds: its undo chip (drawChips), [보기] (jumpPin) and its tooltip.
