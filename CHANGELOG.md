@@ -6,9 +6,10 @@
 
 - **Startup warns when `--allow` can admit nobody.** If `--allow` is non-empty and every entry is a string
   `valid_login` refuses (an entry with whitespace such as `a@example.com b@example.com`, `local`, `agent:…`), one
-  `warning` line under the `auth` line names the rejected entries. Admission would refuse every header-identified
-  person with nothing at startup to say why, which looks like a wrong identity provider. The server still starts. One
-  accepted entry, an empty `--allow`, a managed `access.json` and an unusable one print nothing new.
+  `warning` line under the `auth` line names the rejected entries. Such a list lets no header-identified person in
+  (only `people.json` members under `--members-only` still are), and nothing at startup said why, which looks like a
+  wrong identity provider. The server still starts. One accepted entry, an empty `--allow`, a managed `access.json` and
+  an unusable one print nothing new.
 
 ## 0.4.69 — 2026-11-23
 
