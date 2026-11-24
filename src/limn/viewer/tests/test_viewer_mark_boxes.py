@@ -173,6 +173,12 @@ class MarkPieces(unittest.TestCase):
         )
         self.assertEqual([(mark["pin"], mark["cls"]) for mark in drawn], [("3", "mark est")])
 
+    def test_a_line_pin_of_a_document_of_unknown_kind_is_not_drawn_either(self):
+        """A pin whose document the list of documents does not name (that list failed to load): nothing says it is
+        not a LaTeX pin, and a box over other text is the worse mistake, so an estimated one without boxes is hidden."""
+        drawn = self.draw([{**self.lines_pin(id=7, est=True), "doc": "gone"}])
+        self.assertEqual(drawn, [])
+
     def test_a_line_pin_without_boxes_on_its_own_build_draws_where_it_was_dragged(self):
         """No boxes but no estimate either: the PDF on screen is the one the pin was dragged on, so the dragged box is
         where its text prints there - an awaiting-review pin whose stored lines no longer hold its text included."""

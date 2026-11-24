@@ -16003,7 +16003,8 @@ function pinPieces(pin) {
 }
 // Whether a line pin can only be shown where it was pinned, on an older PDF (docs/handbook/viewer.md §핀 마크의 조각): a
 // pin with a line range and no element, of a document a LaTeX build prints - the only one the server measures boxes
-// for - that the server gave no boxes, while its mark is an estimate (est). With est false the PDF on screen is the one
+// for, which is every document not known to be another kind - that the server gave no boxes, while its mark is an
+// estimate (est). With est false the PDF on screen is the one
 // the pin was dragged on, or one built from the same manuscript, and line matching has not moved or lost it, so the
 // dragged box is where the pin's text prints on it. With est true that box may lie on other text, and nothing the
 // server sent says otherwise: its boxes are absent because the stored lines no longer hold the pin's text, or because
@@ -16012,7 +16013,7 @@ function pinPieces(pin) {
 function pastPlace(pin) {
   if (typeof pin.lo !== 'number' || typeof pin.hi !== 'number' || pin.el || pin.est !== true) return false;
   const entry = docInfo(pdoc(pin));
-  if (!entry || !buildsFromSource(entry.kind)) return false;
+  if (entry && !buildsFromSource(entry.kind)) return false; // an unknown document hides rather than covers other text
   return !(Array.isArray(pin.boxes) && pin.boxes.some(isPiece));
 }
 // Whether a figure pin's element is gone from the current build's map (`el_sync` lost) - shown like a lost line.
