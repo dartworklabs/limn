@@ -453,7 +453,7 @@ class Warm(unittest.TestCase):
         self.D = WarmDoc(src=src, main=main, dir=self.state / "docs" / "ms")
         self.D.dir.mkdir(parents=True)
         self.calls = stand_ins(self, root)
-        # The stand-in latexmk finishes in milliseconds; the limit only ends a hang, so load cannot make it fire.
+        # A hang guard, not a measurement: the stand-in latexmk finishes in milliseconds (#532).
         self.cfg = build.BuildConfig(state=self.state, dpi=72, timeout=60)
 
     def tracked(self, force: bool = False, dpi: int | None = None, **env: str):

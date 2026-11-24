@@ -385,14 +385,14 @@ class TwoDocumentsAtOnce(unittest.TestCase):
 
 
 # latexmk stand-in whose behaviour LIMN_TEST_LATEXMK picks: ok (PDF, SyncTeX, clean log), errors (the same with a
-# '! ' line in the log), nopdf (output only), nosynctex (a PDF without SyncTeX) or hang (never finishes on its own, so
-# only the timeout ends it; the 30 seconds only bound a run whose timeout handling is broken).
+# '! ' line in the log), nopdf (output only), nosynctex (a PDF without SyncTeX) or hang (a child `sleep` that outlasts
+# HANG_STAND_IN_ENDS, so only a timeout that kills the whole process group ends the run sooner).
 MODAL_LATEXMK = """#!/bin/sh
 for a; do main=$a; done
 stem=${main%.tex}
 echo "latexmk ran $stem"
 case "$LIMN_TEST_LATEXMK" in
-  hang) sleep 30 ;;
+  hang) sleep 120 ;;
   nopdf) exit 12 ;;
   nosynctex) cp "$main" "$stem.pdf" ;;
   errors) cp "$main" "$stem.pdf"; printf 'synctex' > "$stem.synctex.gz"
@@ -408,18 +408,24 @@ printf 'P6\\n2 1\\n255\\n\\377\\377\\377\\0\\0\\0'
 """
 
 
-# The latexmk limit every Outcomes test but the timeout one runs under. The stand-ins finish in milliseconds, so the
-# limit is never what ends a run, however busy the machine is; it only ends a test that hangs.
+# The latexmk limit every Outcomes test but the timeout one runs under. It guards against a hang and measures nothing:
+# the stand-ins finish in milliseconds, so only a machine stalled for a full minute would reach it, where the one
+# second it replaces was reached by ordinary load (#532).
 GENEROUS_TIMEOUT = 60
 
-# The limit of the test whose stand-in never finishes: the timeout always fires, so nothing depends on finishing in it.
+# The limit of the timeout test. Its stand-in outlasts it by far, so the limit always fires first; nothing depends on
+# the stand-in finishing, or even printing, inside it.
 HANG_TIMEOUT = 1
+
+# When the hang stand-in's `sleep 120` would end on its own. The timeout test must come back well before that, which it
+# does only if the timeout killed the whole process group and not just the shell that latexmk stands for.
+HANG_STAND_IN_ENDS = 120
 
 
 class Outcomes(unittest.TestCase):
     """Every way a build ends is a value of its own type (docs/handbook/build-sync.md §빌드 결과), made by the module
-    with fake latexmk/pdftoppm on PATH and no server. The latexmk limit is GENEROUS_TIMEOUT, so load cannot turn a
-    stand-in that is merely slow into the timeout outcome; only the one test about the timeout shortens it."""
+    with fake latexmk/pdftoppm on PATH and no server. The latexmk limit is GENEROUS_TIMEOUT, a hang guard that a
+    merely slow stand-in does not reach; only the one test about the timeout shortens it."""
 
     def setUp(self):
         """One LaTeX document, one view-only PDF document and the modal fakes on PATH."""
@@ -484,10 +490,14 @@ class Outcomes(unittest.TestCase):
                 self.assertEqual(build_failure_log(res), BUILD_FAILURES[kind].format(detail=detail) + "\n" + res.output)
 
     def test_a_latexmk_that_never_finishes_is_cut_off_at_the_timeout(self):
-        """A latexmk that never ends on its own is BuildFailed timeout once the limit passes, and the output names the
-        limit. The stand-in outlives any limit, so the limit always fires and nothing here depends on a run finishing
-        (or even printing) inside it."""
+        """A latexmk that outlasts the limit is BuildFailed timeout, and the output names the limit. The run comes back
+        long before the stand-in's own `sleep` would end, which proves the timeout killed the process group: a timeout
+        that only flagged the run, or killed only the shell, would leave the `sleep` holding the output pipe until it
+        ended. The bound is GENEROUS_TIMEOUT, half the stand-in's life, so it is a hang check rather than a race."""
+        started = time.monotonic()
         res = self.compile("hang", timeout=HANG_TIMEOUT)
+        self.assertLess(time.monotonic() - started, GENEROUS_TIMEOUT, "the timeout did not kill the process group")
+        self.assertLess(GENEROUS_TIMEOUT, HANG_STAND_IN_ENDS)
         self.assertIsInstance(res, BuildFailed)
         self.assertEqual((res.kind, res.detail), ("timeout", ""))
         self.assertIn("[시간 초과 %d초" % HANG_TIMEOUT, res.output)

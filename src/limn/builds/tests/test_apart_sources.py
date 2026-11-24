@@ -784,7 +784,7 @@ class Compile(Tree):
             (bin_dir / name).write_text(text, encoding="utf-8")
             (bin_dir / name).chmod(0o755)
         self.env = {"PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", "")}
-        # The stand-in latexmk finishes in milliseconds; the limit only ends a hang, so load cannot make it fire.
+        # A hang guard, not a measurement: the stand-in latexmk finishes in milliseconds (#532).
         self.cfg = build.BuildConfig(state=self.state, dpi=72, timeout=60)
 
     def tracked(
