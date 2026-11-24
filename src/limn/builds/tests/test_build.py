@@ -18,7 +18,7 @@ import tempfile
 import threading
 import time
 import unittest
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from unittest import mock
 
@@ -385,13 +385,14 @@ class TwoDocumentsAtOnce(unittest.TestCase):
 
 
 # latexmk stand-in whose behaviour LIMN_TEST_LATEXMK picks: ok (PDF, SyncTeX, clean log), errors (the same with a
-# '! ' line in the log), nopdf (output only), nosynctex (a PDF without SyncTeX) or hang (outlives the timeout).
+# '! ' line in the log), nopdf (output only), nosynctex (a PDF without SyncTeX) or hang (never finishes on its own, so
+# only the timeout ends it; the 30 seconds only bound a run whose timeout handling is broken).
 MODAL_LATEXMK = """#!/bin/sh
 for a; do main=$a; done
 stem=${main%.tex}
 echo "latexmk ran $stem"
 case "$LIMN_TEST_LATEXMK" in
-  hang) sleep 5 ;;
+  hang) sleep 30 ;;
   nopdf) exit 12 ;;
   nosynctex) cp "$main" "$stem.pdf" ;;
   errors) cp "$main" "$stem.pdf"; printf 'synctex' > "$stem.synctex.gz"
@@ -407,9 +408,18 @@ printf 'P6\\n2 1\\n255\\n\\377\\377\\377\\0\\0\\0'
 """
 
 
+# The latexmk limit every Outcomes test but the timeout one runs under. The stand-ins finish in milliseconds, so the
+# limit is never what ends a run, however busy the machine is; it only ends a test that hangs.
+GENEROUS_TIMEOUT = 60
+
+# The limit of the test whose stand-in never finishes: the timeout always fires, so nothing depends on finishing in it.
+HANG_TIMEOUT = 1
+
+
 class Outcomes(unittest.TestCase):
     """Every way a build ends is a value of its own type (docs/handbook/build-sync.md §빌드 결과), made by the module
-    with fake latexmk/pdftoppm on PATH and no server."""
+    with fake latexmk/pdftoppm on PATH and no server. The latexmk limit is GENEROUS_TIMEOUT, so load cannot turn a
+    stand-in that is merely slow into the timeout outcome; only the one test about the timeout shortens it."""
 
     def setUp(self):
         """One LaTeX document, one view-only PDF document and the modal fakes on PATH."""
@@ -427,7 +437,7 @@ class Outcomes(unittest.TestCase):
         self.P = PlainDoc(
             src=src, main=pdf, dir=self.state / "docs" / "rv", builds_from_source=False, watches_files=True
         )
-        self.cfg = build.BuildConfig(state=self.state, dpi=72, timeout=1)
+        self.cfg = build.BuildConfig(state=self.state, dpi=72, timeout=GENEROUS_TIMEOUT)
         bin_dir = root / "bin"
         bin_dir.mkdir()
         for name, text in (("latexmk", MODAL_LATEXMK), ("pdftoppm", MODAL_PDFTOPPM), ("pdfinfo", FAKE_PDFINFO)):
@@ -435,11 +445,13 @@ class Outcomes(unittest.TestCase):
             (bin_dir / name).chmod(0o755)
         self.env = {"PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", "")}
 
-    def compile(self, latexmk: str = "ok", pdftoppm: str = "ok", pull=None):
-        """compile_tex of the LaTeX document with the fakes in the given modes."""
+    def compile(self, latexmk: str = "ok", pdftoppm: str = "ok", pull=None, timeout: int | None = None):
+        """compile_tex of the LaTeX document with the fakes in the given modes, under the fixture's limit unless
+        `timeout` is given."""
+        cfg = self.cfg if timeout is None else replace(self.cfg, timeout=timeout)
         env = dict(self.env, LIMN_TEST_LATEXMK=latexmk, LIMN_TEST_PDFTOPPM=pdftoppm)
         with mock.patch.dict(os.environ, env):
-            return build_engine.compile_tex(self.D, self.cfg, pull)
+            return build_engine.compile_tex(self.D, cfg, pull)
 
     def test_ok_when_a_fresh_pdf_and_synctex_come_out(self):
         """A clean build is BuildOk naming its new page directory, which pages.cur now points at."""
@@ -457,12 +469,11 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(res.errors, [{"line": 3, "msg": "Undefined control sequence."}])
 
     def test_each_failed_compile_names_its_kind(self):
-        """No PDF, no SyncTeX, a timeout and a failed render are BuildFailed with that kind, latexmk's output kept; a
-        failed render's detail names the page and pdftoppm's message."""
+        """No PDF, no SyncTeX and a failed render are BuildFailed with that kind, latexmk's output kept; a failed
+        render's detail names the page and pdftoppm's message."""
         for latexmk, pdftoppm, kind, detail in (
             ("nopdf", "ok", "no_pdf", ""),
             ("nosynctex", "ok", "no_synctex", ""),
-            ("hang", "ok", "timeout", ""),
             ("ok", "fail", "render", "page 1: pdftoppm exit 1: Syntax Error: stand-in"),
         ):
             with self.subTest(kind=kind):
@@ -471,6 +482,16 @@ class Outcomes(unittest.TestCase):
                 self.assertEqual((res.kind, res.detail), (kind, detail))
                 self.assertIsNotNone(res.output)
                 self.assertEqual(build_failure_log(res), BUILD_FAILURES[kind].format(detail=detail) + "\n" + res.output)
+
+    def test_a_latexmk_that_never_finishes_is_cut_off_at_the_timeout(self):
+        """A latexmk that never ends on its own is BuildFailed timeout once the limit passes, and the output names the
+        limit. The stand-in outlives any limit, so the limit always fires and nothing here depends on a run finishing
+        (or even printing) inside it."""
+        res = self.compile("hang", timeout=HANG_TIMEOUT)
+        self.assertIsInstance(res, BuildFailed)
+        self.assertEqual((res.kind, res.detail), ("timeout", ""))
+        self.assertIn("[시간 초과 %d초" % HANG_TIMEOUT, res.output)
+        self.assertEqual(build_failure_log(res), BUILD_FAILURES["timeout"].format(detail="") + "\n" + res.output)
 
     def test_pull_record_rides_along(self):
         """The --git-pull step's record is the outcome's pull, success or failure."""

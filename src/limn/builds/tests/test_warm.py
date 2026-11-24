@@ -453,11 +453,12 @@ class Warm(unittest.TestCase):
         self.D = WarmDoc(src=src, main=main, dir=self.state / "docs" / "ms")
         self.D.dir.mkdir(parents=True)
         self.calls = stand_ins(self, root)
-        self.cfg = build.BuildConfig(state=self.state, dpi=72, timeout=10)
+        # The stand-in latexmk finishes in milliseconds; the limit only ends a hang, so load cannot make it fire.
+        self.cfg = build.BuildConfig(state=self.state, dpi=72, timeout=60)
 
     def tracked(self, force: bool = False, dpi: int | None = None, **env: str):
         """One tracked build of the document (run_tracked over compile_tex), the stand-ins in the given modes."""
-        cfg = self.cfg if dpi is None else build.BuildConfig(state=self.state, dpi=dpi, timeout=10)
+        cfg = self.cfg if dpi is None else build.BuildConfig(state=self.state, dpi=dpi, timeout=60)
         with mock.patch.dict(os.environ, env):
             return build_run.run_tracked(
                 self.D,
