@@ -1356,6 +1356,8 @@ class FrontendMobileLogic(unittest.TestCase):
                 extract_js_fn("pinPlace"),
                 extract_js_fn("isElementLost"),
                 extract_js_fn("lostElementTag"),
+                extract_js_fn("isPiece"),
+                extract_js_fn("pastPlace"),  # the card's '과거 위치' badge (a line pin the page does not draw)
                 extract_js_fn("figureRegionBadge"),
                 extract_js_fn("isFigureKind"),
                 extract_js_fn("shownQuote"),  # the card's quote line (none here: these pins carry no quote)
@@ -3422,6 +3424,7 @@ class FrontendFigure(unittest.TestCase):
                         "pinPlace",
                         "isPiece",
                         "pinPieces",
+                        "pastPlace",
                         "isElementLost",
                         "isEstimated",
                         "pinState",
@@ -4888,6 +4891,8 @@ class FrontendReview(unittest.TestCase):
                 extract_js_fn("pinPlace"),
                 extract_js_fn("isElementLost"),
                 extract_js_fn("lostElementTag"),
+                extract_js_fn("isPiece"),
+                extract_js_fn("pastPlace"),  # the card's '과거 위치' badge (a line pin the page does not draw)
                 extract_js_fn("figureRegionBadge"),
                 extract_js_fn("isFigureKind"),
                 extract_js_fn("shownQuote"),  # the card's quote line (none here: these pins carry no quote)

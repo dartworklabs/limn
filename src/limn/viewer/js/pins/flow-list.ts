@@ -64,7 +64,7 @@ import { setViewMode } from '../revisions/flow.ts';
 import { docTitle, switchDoc, viaDoc } from '../documents/flow-switch.ts';
 import { noteNewPins } from '../documents/flow-updates.ts';
 import { applySide, setSide } from '../layout/flow.ts';
-import { isElementLost, hasMark, pinPieces, pinPlace } from '../pdf/view-figure.ts';
+import { isElementLost, hasMark, pastPlace, pinPieces, pinPlace } from '../pdf/view-figure.ts';
 import { movingPin } from '../pdf/input-selection.ts';
 import { jumpToPinLines, drawPinMarks } from '../markdown/view-marks.ts';
 import { recomputeOverlap, renderOverlapBanner } from '../composer/view-overlap.ts';
@@ -460,7 +460,8 @@ let MARK_COVER_TICK = 0;
 // Draws the marks of this document's open and awaiting-review pins, one element per piece of each pin's mark: the boxes
 // the server computed for a LaTeX line pin's range, where a figure pin's element is now, else where the pin was pinned
 // (pinPieces), then decides each badge's side (markBadgeSides) and puts a save's or an append's undo chip back on its
-// mark (drawChips). A pin without a usable box, and a piece on a page that is not on screen, draw nothing.
+// mark (drawChips). A pin without a usable box, a line pin that could only be drawn where it was pinned on an older PDF
+// (pastPlace), and a piece on a page that is not on screen draw nothing.
 /** Draw native, named pin badge buttons at the current mark coordinates, preserving mark and undo-chip geometry. */
 // A pin a page verdict line shows (isShownOnLine) draws no page-size box: the line under its page says it
 // (drawPageVerdicts, first).
@@ -477,6 +478,7 @@ function marks() {
   // pinPlace), and a found element is no estimate.
   PINS.concat(REVIEW_ALL.filter((pin) => pdoc(pin) === DOC)).forEach((pin) => {
     if (pinVerdicts().shownOnLine(pin)) return;
+    if (pastPlace(pin)) return; // only where it was pinned on an older PDF, which may be other text: its card says so
     // The pieces come page by page and then down each page, and the pages stand in that order on screen: the first one
     // drawn is this pin's first .mark in the document. That is the piece the number badge goes on - one badge for the
     // pin - and the one every lookup of its mark finds: its undo chip (drawChips), [보기] (jumpPin) and its tooltip.

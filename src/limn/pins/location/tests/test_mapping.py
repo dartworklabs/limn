@@ -1,11 +1,20 @@
 """The pure box math behind a pin's mark: the PDF boxes SyncTeX gives for a range's lines, filtered, padded, merged
 (mapping.line_boxes, range_pad, merge_boxes), and a range of today's file read back in the file a build read
-(mapping.built_range, and built_ranges for many ranges of one file).
+(mapping.built_range, and built_ranges for many ranges of one file), and whether a stored range is still its pin's
+text at all (mapping.anchor_stands) - the gate a stored pin's mark passes before any box is asked for.
 
 Run: uv run pytest -q src/limn/pins/location/tests/test_mapping.py
 """
 
-from limn.pins.location.mapping import BOX_LIMIT, built_range, built_ranges, line_boxes, merge_boxes, range_pad
+from limn.pins.location.mapping import (
+    BOX_LIMIT,
+    anchor_stands,
+    built_range,
+    built_ranges,
+    line_boxes,
+    merge_boxes,
+    range_pad,
+)
 
 PAGE_W, PAGE_H = 595.28, 841.89
 
@@ -189,3 +198,81 @@ def test_built_ranges_of_an_unedited_file_is_the_range_itself():
     lines = ["a", "b", "c"]
     ask = built_ranges(lines, lines)
     assert [ask(1, 3), ask(2, 2), ask(2, 9), ask(0, 1)] == [(1, 3), (2, 2), (2, 3), (1, 1)]
+
+
+# ---------------------------------------------------------------- anchor_stands: is a stored range still its pin's text
+
+
+# A paragraph of three lines between two others; its head and tail are what anchor_of would capture.
+STAND = ["Intro line.", "Alpha head sentence starts here.", "middle words", "Alpha tail sentence ends here.", "Next."]
+ALPHA = {
+    "head": "Alpha head sentence starts here.",
+    "tail": "Alpha tail sentence ends here.",
+    "head_off": 0,
+    "tail_off": 0,
+}
+
+
+def test_anchor_stands_when_head_and_tail_are_on_the_stored_lines():
+    """The head at lo and the tail at hi: the stored range is still the pin's text."""
+    assert anchor_stands(ALPHA, 2, 4, STAND)
+
+
+def test_anchor_does_not_stand_when_the_text_moved_away():
+    """Five lines added above: the stored numbers now name other text, as a closed pin's do after an edit."""
+    moved = ["new"] * 5 + STAND
+    assert not anchor_stands(ALPHA, 2, 4, moved)
+    assert anchor_stands(ALPHA, 7, 9, moved)
+
+
+def test_anchor_does_not_stand_on_its_head_alone():
+    """The same head line repeated at lo with a different tail after it is another paragraph, not the pin's: a head
+    that recurs across a manuscript can land on a stored lo by chance."""
+    twin = ["Intro line.", "Alpha head sentence starts here.", "other words", "Another ending.", "Next."]
+    assert not anchor_stands(ALPHA, 2, 4, twin)
+
+
+def test_anchor_does_not_stand_on_its_tail_alone():
+    """The tail where hi says but the head rewritten: the range's start is no longer the pin's text."""
+    rewritten = ["Intro line.", "A new first sentence.", "middle words", "Alpha tail sentence ends here.", "Next."]
+    assert not anchor_stands(ALPHA, 2, 4, rewritten)
+
+
+def test_anchor_stands_reads_the_offsets_of_comment_lines_at_the_edges():
+    """head_off and tail_off move the lines compared inward from lo and hi; an offset that is not an int in 0..9999
+    counts as 0, as everywhere an anchor is read."""
+    lines = ["% note", "Alpha head sentence starts here.", "Alpha tail sentence ends here.", "% todo"]
+    anchor = dict(ALPHA, head_off=1, tail_off=1)
+    assert anchor_stands(anchor, 1, 4, lines)
+    assert not anchor_stands(dict(anchor, head_off="1"), 1, 4, lines)
+    assert anchor_stands(dict(anchor, head_off=True, tail_off=-3), 2, 3, lines)
+
+
+def test_anchor_stands_matches_a_line_as_line_matching_does():
+    """A line of 12 or more characters stands when its first 40 are in the line (an edit at its end keeps it); a
+    shorter one only as the whole line - find_line's rule, so line matching and this judgment agree."""
+    long_head = "x" * 45
+    lines = ["x" * 40 + " edited ending", "end"]
+    assert anchor_stands({"head": long_head, "tail": "end"}, 1, 2, lines)
+    assert not anchor_stands({"head": "short", "tail": "end"}, 1, 2, ["short line", "end"])
+    assert anchor_stands({"head": "short", "tail": "end"}, 1, 2, ["short", "end"])
+
+
+def test_anchor_does_not_stand_without_a_usable_anchor():
+    """No anchor, an empty one (a range of blank lines), a missing or empty head or tail, or one that is not text:
+    nothing says the lines are the pin's, so they do not stand."""
+    for anchor in (
+        None,
+        {},
+        {"head": ALPHA["head"]},
+        {"tail": ALPHA["tail"]},
+        dict(ALPHA, tail=""),
+        dict(ALPHA, head=7),
+    ):
+        assert not anchor_stands(anchor, 2, 4, STAND), anchor
+
+
+def test_anchor_does_not_stand_on_lines_outside_the_file():
+    """A stored range past the end of a file that shrank, or one starting before line 1, names no line to compare."""
+    assert not anchor_stands(ALPHA, 2, 9, STAND)
+    assert not anchor_stands(dict(ALPHA, head_off=0), 0, 4, ["Alpha head sentence starts here."] + STAND)

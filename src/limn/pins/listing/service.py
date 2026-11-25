@@ -76,8 +76,8 @@ class PinListing:
     trash_days: int
 
     def pins_payload(self, pins: Sequence[Pin], allp: bool) -> list[Json]:
-        """The list with overlap, estimation, figure element positions, line marks and verdict supersession computed
-        over the full live set."""
+        """The list with overlap, estimation, figure element positions, line marks (only where a pin's anchor still
+        stands on its lines) and verdict supersession computed over the full live set."""
         return self._views(pins, [pin.record for pin in pins], allp)
 
     def _views(self, pins: Sequence[Pin], rows: Sequence[Record], allp: bool) -> list[Json]:

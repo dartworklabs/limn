@@ -830,6 +830,8 @@
  "위치 복사": "Copy location",
  "위치 불확실": "Location uncertain",
  "위치 잃음": "Location lost",
+ "과거 위치": "Past location",
+ "원고나 PDF가 바뀐 뒤 이 핀의 줄이 지금 PDF의 어디에 찍히는지 확인하지 못해 쪽 위에 표시하지 않습니다. 줄 범위와 메모로 확인하세요": "The manuscript or the PDF changed, and where this pin's lines print on the current PDF could not be confirmed, so it is not marked on the page. Check it by its line range and note",
  "위치 잃음 ·": "Location lost ·",
  "위치 잃음 — 같은 뜻의 배지가 함께 붙는다. 완료·삭제는 목록 아래 흐린 행(": "location lost — a badge with the same meaning is attached too. Done and deleted pins are dimmed rows below the list (",
  "위치 잃음 — 같은 뜻의 배지가 함께 붙는다. 완료·삭제는 목록 아래 흐린 행( 완료 ·  삭제)": "Location lost — a badge with the same meaning appears alongside it. Done and deleted pins appear as dimmed rows at the bottom of the list (Done · Deleted)",

@@ -238,10 +238,16 @@ FollowElement: TypeAlias = Callable[[str, int, ElementFrac], FollowedElement]
 # declaration module of this slice imports no other module of it; the supplier declares the same shape on its side.
 MarkPieces: TypeAlias = tuple[tuple[int, tuple[float, float, float, float]], ...]
 
+# A check on one manuscript file's lines - the whole file as the supplier read it for this answer, today's text - that
+# says whether a range may be measured at all. A listing passes the check that a stored pin's anchor still stands on its
+# lines (limn.pins.location.mapping.anchor_stands), so the check and the measurement read one snapshot of the file.
+LinesHold: TypeAlias = Callable[[Sequence[str]], bool]
+
 # Where lines lo..hi (1-based, inclusive) of one manuscript file print on the pages of the build a document has on
-# screen, bound to that document by the supplier: (the file's path on this machine, lo, hi) -> the mark's pieces,
-# empty when there is no answer. The caller never sees a PDF, a page folder or the lines that build read.
-BoxesFor: TypeAlias = Callable[[str, int, int], MarkPieces]
+# screen, bound to that document by the supplier: (the file's path on this machine, lo, hi, the caller's LinesHold) ->
+# the mark's pieces, empty when there is no answer or the check says no - then nothing is measured. The caller never
+# sees a PDF, a page folder or the lines that build read.
+BoxesFor: TypeAlias = Callable[[str, int, int, LinesHold], MarkPieces]
 
 # The supplier's asker for one document, which the composition root passes to assemble_pins() as it passes the
 # document owner's verdict lookup: None for a document whose line pins are not lines a LaTeX build printed - a figure
