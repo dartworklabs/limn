@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.4.70 — 2026-11-25
+
+The agent contract is unchanged: no HTTP path, field, state name, `reason` code or `pins.md` row is added, removed or
+changed. What an agent can notice is that `GET /api/pins` leaves `boxes` out of more line pins — awaiting-review, done
+and lost pins whose stored lines no longer hold their text — which is the answer the field already gave for a mark it
+could not measure. Rolling back to 0.4.69 draws those marks again where the stored lines print; nothing stored changes
+either way.
 
 ### Fixed
 
